@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Data (lives outside repo at D:\ORCASTRA_DATA)
+*.parquet
+*.tmp.parquet
+
+# Node
+node_modules/
+.next/
+out/
+
+# Logs
+*.log

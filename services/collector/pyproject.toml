@@ -1,0 +1,26 @@
+[project]
+name = "orcastra-collector"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sivasurya", email = "sivasurya.ms.ad.2023@snsce.ac.in" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.5.6",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "polars>=2.0.0",
+    "psutil>=7.2.2",
+    "pyarrow>=25.0.1",
+    "requests>=2.34.2",
+    "websockets>=17.2",
+]
+
+[project.scripts]
+orcastra-collector = "orcastra_collector:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
