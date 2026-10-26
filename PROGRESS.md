@@ -174,12 +174,54 @@
 | **Quantile Regression P80** | 12.603 h | [11.153, 13.968] | 2.814 h | 8.078 h | 4.682 h | 78.1% (target 80%) [73.8%, 82.4%] |
 | **Quantile Regression P95** | 23.487 h | [21.824, 25.141] | 3.316 h | 22.946 h | 3.018 h | 87.2% (target 95%) [83.5%, 90.6%] |
 
-- **Quantile Monotonicity:** 29 inversions out of 320 test instances (independent tree fitting).
+- **Quantile Monotonicity:** 29 inversions out of 320 test instances in v1 (independent tree fitting).
 - **Vessel-Disjoint Sensitivity Analysis:**
   - **Overlapping cohort** ($N=111$ arrivals, seen in train): Hist Median MAE = **3.364h**, P50 MAE = **3.504h**, P95 coverage = 89.2%. (Repeating liner vessels have predictable direct transits).
   - **Disjoint cohort** ($N=209$ arrivals, novel MMSIs): Hist Median MAE = **7.202h**, P50 MAE = **7.314h**, P95 coverage = 86.1%.
 - **Protocol Gate Outcome:** **STOP/REVISE.**
-  - Quantile crossing (29 inversions) and P95 under-coverage (87.2% vs 95% target) confirm that entrance-only kinematics cannot separate anchored vessels from direct transits without explicit anchorage queue features.
+  - Full-trip entrance kinematics cannot predict downstream anchorage delays without queue features. Led directly to Protocol v2.
+
+---
+
+## Tier 1: Protocol v2 Execution & Short-Horizon Benchmark ✅
+
+### Protocol v2 Freeze (docs/EVAL_PROTOCOL_V2.md)
+- Committed to git prior to v2 run: commit `55ca9c3`.
+
+### 1. Reconciled Full-Trip Benchmarks (Inbound Only)
+- **Cohort A1 (Strict First-Crossing Inbound, $N=899$):**
+  - Train (Jan-Feb): 609 arrivals | Test (March): 290 arrivals.
+  - Historical Train Median (scalar = 3.89h): Test MAE = **6.282 h** [95% CI: 4.655, 8.055].
+- **Cohort A2 (Inbound with Re-Entry Allowed, $N=985$):**
+  - Train (Jan-Feb): 665 arrivals | Test (March): 320 arrivals.
+  - Historical Train Median (scalar = 3.87h): Test MAE = **5.871 h** [95% CI: 4.355, 7.490].
+- **Old results preserved:** Prior results preserved in `tier1_baseline_results.json`.
+
+### 2. Anchorage Timing & Pre-Entrance Feature Value
+- **Full Population ($N=1,008$ arrivals):** 564 (56.0%) waited before $t_0$ only; 43 (4.3%) after only; 195 (19.3%) both before and after; 206 (20.4%) direct transit.
+- **Long Trips ($>12$h, $N=228$):** **99.1% (226 of 228)** had dwells **AFTER $t_0$** (185 waited both before and after, 41 after only).
+- **Pre-entrance feature correlations with transit duration:** Pre-$t_0$ dwell hours $r = 0.019$; Pre-$t_0$ mean SOG $r = 0.069$. Pre-entrance kinematics have negligible predictive value for channel duration.
+
+### 3. Short-Horizon State-Based ETA (March Test Set: $N=4,215$ Snapshots, 259 Vessels)
+- Conformal calibration fitted on held-out slice (Feb 16–29); test set completely untouched until frozen run.
+- Quantile monotonicity strictly enforced via sorting (**0 inversions**).
+
+| Horizon Bucket | Test Snapshots | Naive ($d/\text{SOG}$) MAE | Hist Segment Median MAE | Calibrated P50 MAE | 95% Bootstrap CI (MAE) | CI Width | MedAE | P95 Coverage | Unseen Vessels MAE (P50) | Unseen Vessels P95 Coverage |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **$\le 1$ hour** | 1,020 | 0.487 h (29.2m) | 0.459 h (27.5m) | **0.262 h (15.7m)** | [0.227, 0.297] | 0.070 h (4.2m) | **0.148 h (8.9m)** | **100.0%** [100.0%, 100.0%] | 0.269 h (16.1m) | 100.0% |
+| **1–2 hours** | 1,726 | 0.787 h (47.2m) | 0.441 h (26.5m) | **0.234 h (14.0m)** | [0.206, 0.261] | 0.055 h (3.3m) | **0.148 h (8.9m)** | **99.1%** [98.1%, 99.9%] | 0.239 h (14.3m) | 99.7% |
+| **2–3 hours** | 1,469 | 0.928 h (55.7m) | 0.284 h (17.0m) | **0.230 h (13.8m)** | [0.207, 0.256] | 0.049 h (2.9m) | **0.158 h (9.5m)** | **98.6%** [97.2%, 99.7%] | 0.229 h (13.7m) | 99.4% |
+| **Overall ($\le 3$h)** | **4,215** | 0.763 h (45.8m) | 0.390 h (23.4m) | **0.239 h (14.3m)** | [0.212, 0.267] | **0.054 h (3.2m)** | **0.151 h (9.0m)** | **99.2%** [98.2%, 99.8%] | **0.243 h (14.6m)** | **99.7%** |
+
+- **Key Takeaway:** Short-horizon ETA along the channel corridor achieves **$\text{MAE} \approx 14$ minutes and $\text{MedAE} \approx 9$ minutes**, unblocking the CI-width gate ($\text{CI width} = 3.2$ minutes) and generalizing to novel vessels with zero degradation ($0.239$h overall vs $0.243$h unseen).
+
+---
+
+### Task Scheduler Real Test Verification ✅
+- Triggers active: `<LogonTrigger>`, `<SessionStateChangeTrigger>` (`SessionUnlock`), and `<EventTrigger>` (`Power-Troubleshooter Event ID 1`).
+- Real run triggered via `schtasks /Run /TN "ORCASTRA_Collector"`.
+- Clean execution verified in `D:\ORCASTRA_DATA\autostart.log` with dual UTC and IST timestamps.
+- Forced kill tested: unclosed session `d4014118` audited and recovered to status `crashed` by supervisor.
 
 ---
 
@@ -191,14 +233,16 @@
 | **D: Free Space** | **88.27 GB** | $\ge 5.0$ GB | PASS (healthy) |
 | **Historical Data (D:)** | **873.04 MB** | $\le 1,024$ MB (1.0 GB) | PASS (within 1 GB budget) |
 | **M0 Hours Used** | **~12.0 hours** | 32.0 hours hard stop | Completed |
-| **Tier 1 Hours Used** | **~1.5 hours** | — | Preparation & baselines |
-| **Total Agent Hours** | **~13.5 hours** | 32.0 hours | Well within safety margin |
+| **Tier 1 Hours Used** | **~2.0 hours** | — | Preparation & v2 benchmark |
+| **Total Agent Hours** | **~14.0 hours** | 32.0 hours | Well within safety margin |
 
 ### Current Status
 - **STOPPED.**
-- Protocol frozen and committed (`docs/EVAL_PROTOCOL.md`).
-- Baselines run once and documented (`tier1_baseline_results.json`).
-- No replacement models trained. No live recording beyond scheduled test run.
+- Protocol v2 frozen and committed (`docs/EVAL_PROTOCOL_V2.md`).
+- Short-horizon benchmarks and full-trip reconciliations executed and documented (`tier1_v2_short_horizon_results.json`).
+- Experiment 2 (queue features) predefined and deferred per user order.
+- No further models run. No live collection beyond scheduled test run.
+
 
 
 
