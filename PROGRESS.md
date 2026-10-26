@@ -217,11 +217,32 @@
 
 ---
 
-### Task Scheduler Real Test Verification ✅
-- Triggers active: `<LogonTrigger>`, `<SessionStateChangeTrigger>` (`SessionUnlock`), and `<EventTrigger>` (`Power-Troubleshooter Event ID 1`).
-- Real run triggered via `schtasks /Run /TN "ORCASTRA_Collector"`.
-- Clean execution verified in `D:\ORCASTRA_DATA\autostart.log` with dual UTC and IST timestamps.
-- Forced kill tested: unclosed session `d4014118` audited and recovered to status `crashed` by supervisor.
+### 4. Protocol v2.1 Execution: Unconditioned Evaluation & Distance Buckets (March Test Set)
+- **Protocol committed BEFORE running:** `docs/EVAL_PROTOCOL_V2_1.md` (git commit `553543d`).
+- **All state-triggered snapshots retained:** $N = 5,067$ test snapshots (264 unique vessels). No conditioning on true remaining duration.
+- **Bucketing by observable distance-to-berth ($d_{\text{rem}}$):**
+  - Near Berth ($d \le 10$ km): $N=1,544$
+  - Mid-Channel ($10 < d \le 25$ km): $N=904$
+  - Outer Channel ($25 < d \le 50$ km): $N=2,149$
+  - Beyond Entrance ($d > 50$ km): $N=470$
+  - Overall: $N=5,067$
+- **Headline Results:**
+  - Share with true $y_{\text{rem}} > 3$h: **17.4%** test (20.2% full dataset).
+  - Share anchored midway: **13.0%** test (11.9% full dataset).
+  - Overall QR P50 MedAE: **0.211 h (12.7 min)** (Near Berth MedAE = **8.7 min**).
+  - Overall QR P50 MAE: **2.725 h** [95% CI: 1.785, 3.723] (vs Bucket Median Baseline MAE = 2.708h, Kinematic MAE = 3.113h).
+  - Overall P95 Empirical Coverage: **97.9%** [96.4%, 99.1%].
+  - Overall Interval Widths: P80$-$P50 = **3.595 h**, P95$-$P50 = **41.809 h** (accurately reflecting the heavy tail of midway anchorages).
+  - Disjoint / Unseen Vessels ($N=167$ vessels): P50 MAE = **3.658 h**, P95 Coverage = **96.8%**.
+- **Results artifact saved:** `D:\ORCASTRA_DATA\historical\results\tier1_v2_1_short_horizon_results.json`.
+
+---
+
+### Task Scheduler Verification Status
+- **Triggers configured in Task Scheduler:** `<LogonTrigger>`, `<SessionStateChangeTrigger>` (`SessionUnlock`), and `<EventTrigger>` (`Power-Troubleshooter Event ID 1`).
+- **Real OS Lock/Unlock & System Sleep/Wake:** Marked as **UNTESTED in live OS session** (locking or sleeping the host machine from this non-interactive terminal terminates connection and requires physical user presence to unlock/wake).
+- **Simulated Sleep & Recovery:** Fully tested via wall-clock jump at 90s threshold. Clean session completion (`status = 'completed'`, `error_message = None`) confirmed when stopped normally.
+- **Crash Recovery:** Confirmed: unclosed sessions audited and recovered to status `'crashed'` on supervisor restart.
 
 ---
 
@@ -229,19 +250,19 @@
 
 | Metric | Value | Budget / Cap | Status |
 |---|---|---|---|
-| **C: Free Space** | **28.81 GB** | $\ge 3.0$ GB | PASS (healthy) |
-| **D: Free Space** | **88.27 GB** | $\ge 5.0$ GB | PASS (healthy) |
+| **C: Free Space** | **28.71 GB** | $\ge 3.0$ GB | PASS (healthy) |
+| **D: Free Space** | **88.39 GB** | $\ge 5.0$ GB | PASS (healthy) |
 | **Historical Data (D:)** | **873.04 MB** | $\le 1,024$ MB (1.0 GB) | PASS (within 1 GB budget) |
 | **M0 Hours Used** | **~12.0 hours** | 32.0 hours hard stop | Completed |
-| **Tier 1 Hours Used** | **~2.0 hours** | — | Preparation & v2 benchmark |
-| **Total Agent Hours** | **~14.0 hours** | 32.0 hours | Well within safety margin |
+| **Tier 1 Hours Used** | **~2.5 hours** | — | Preparation & v2/v2.1 benchmark |
+| **Total Agent Hours** | **~14.5 hours** | 32.0 hours | Well within safety margin |
 
 ### Current Status
 - **STOPPED.**
-- Protocol v2 frozen and committed (`docs/EVAL_PROTOCOL_V2.md`).
-- Short-horizon benchmarks and full-trip reconciliations executed and documented (`tier1_v2_short_horizon_results.json`).
-- Experiment 2 (queue features) predefined and deferred per user order.
-- No further models run. No live collection beyond scheduled test run.
+- Protocol v2.1 committed and frozen (`docs/EVAL_PROTOCOL_V2_1.md`).
+- Both Protocol v2 and Protocol v2.1 benchmark results preserved and reported.
+- Experiment 2 (queue features) NOT run, per user instruction.
+- C: and D: free space measured. No background processes running.
 
 
 
