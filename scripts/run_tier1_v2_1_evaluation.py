@@ -1,5 +1,5 @@
 """
-ORCASTRA Tier 1 — Benchmark Execution conforming to Protocol v2.1 (docs/EVAL_PROTOCOL_V2_1.md).
+ORCASTRA Tier 1 -- Benchmark Execution conforming to Protocol v2.1 (docs/EVAL_PROTOCOL_V2_1.md).
 
 KEY CHANGES FROM v2.0 SCRIPT:
   - NO label-conditioned selection: all state-triggered corridor snapshots are included
@@ -12,6 +12,7 @@ KEY CHANGES FROM v2.0 SCRIPT:
   - Anchored-midway and right-censored snapshots explicitly counted and tagged.
   - Conformal calibration strictly on Feb 16-29 held-out slice (isolated from test).
   - Vessel-clustered bootstrap CIs (B=2000).
+  - Strict ASCII logging to avoid Windows console encoding failures.
 """
 
 import json
@@ -23,11 +24,18 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# Ensure UTF-8 output on Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import numpy as np
 import polars as pl
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-# ── Paths ──
+# -- Paths --
 OUTPUT_DIR = Path(r"D:\ORCASTRA_DATA\historical\noaa_3mo")
 RESULTS_DIR = Path(r"D:\ORCASTRA_DATA\historical\results")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,10 +60,10 @@ CENTERLINE_WP = [
     (29.720, -95.050, 0.0),   # Inner Berths
 ]
 
-# ── Corridor boundaries ──
+# -- Corridor boundaries --
 CORRIDOR = {"lat_min": 29.34, "lat_max": 29.75, "lon_min": -95.12, "lon_max": -94.70}
 
-# ── Distance-to-berth buckets (v2.1 §3.4) ──
+# -- Distance-to-berth buckets (v2.1 Section 3.4) --
 DISTANCE_BUCKETS = {
     "Near Berth (d <= 10 km)":       (0.0, 10.0),
     "Mid-Channel (10-25 km)":        (10.0, 25.0),
@@ -105,8 +113,13 @@ def safe_cog(val):
     return float(val)
 
 
-def is_inbound_heading(cog_val):
-    """Check if COG represents an inbound heading in the Houston Ship Channel."""
+def is_inbound_entrance(cog_val):
+    """Entrance zone crossing inbound definition: [270, 360] U [0, 30]."""
+    return cog_val is not None and ((270 <= cog_val <= 360) or (0 <= cog_val <= 30))
+
+
+def is_inbound_corridor(cog_val):
+    """Corridor underway heading definition: [270, 360] U [0, 45]."""
     return cog_val is not None and ((270 <= cog_val <= 360) or (0 <= cog_val <= 45))
 
 
@@ -115,9 +128,9 @@ def pinball_loss(y_true, y_pred, alpha):
     return float(np.mean(np.maximum(alpha * diff, (alpha - 1.0) * diff)))
 
 
-# ── Vessel-Clustered Bootstrap (v2.1 §7.1) ──
-# See EVAL_PROTOCOL_V2_1.md §7.1 for specification.
-# Lines L110-L130: bootstrap resamples unique MMSIs with replacement.
+# -- Vessel-Clustered Bootstrap (v2.1 Section 7.1) --
+# Specification: EVAL_PROTOCOL_V2_1.md Section 7.1.
+# Code lines L126-L150: bootstrap resamples unique MMSIs with replacement.
 def cluster_bootstrap_ci(mmsi_array, y_true, y_pred, metric_func, B=2000, seed=42):
     """Vessel-level cluster bootstrap resampling unique MMSIs with replacement.
 
@@ -155,12 +168,12 @@ def cluster_bootstrap_ci(mmsi_array, y_true, y_pred, metric_func, B=2000, seed=4
 def main():
     t_start = time.time()
     print("=" * 70)
-    print("ORCASTRA TIER 1 — PROTOCOL V2.1 BENCHMARK RUN")
+    print("ORCASTRA TIER 1 -- PROTOCOL V2.1 BENCHMARK RUN")
     print("  Protocol: docs/EVAL_PROTOCOL_V2_1.md")
     print("  Key change: unconditioned snapshots, distance-to-berth buckets")
     print("=" * 70)
 
-    # ── Load data ──
+    # -- Load data --
     files = sorted(OUTPUT_DIR.glob("houston_2024-*.parquet"))
     df_raw = pl.read_parquet(files, columns=SLIM_COLUMNS)
     df = df_raw.with_columns(
@@ -183,13 +196,15 @@ def main():
     print(f"Commercial MMSIs: {len(normalized)}")
 
     # ─────────────────────────────────────────────────────────────────
-    # PART 1: EXTRACT COHORT A1 ARRIVALS (Strict Inbound First-Crossing)
+    # PART 1: EXTRACT COHORT A1 AND COHORT A2 ARRIVALS
     # ─────────────────────────────────────────────────────────────────
     print("\n" + "-" * 70)
-    print("PART 1: COHORT A1 ARRIVAL EXTRACTION")
+    print("PART 1: FULL-TRIP RECONCILIATION: COHORT A1 vs COHORT A2")
     print("-" * 70)
 
     cohort_a1 = []
+    cohort_a2 = []
+
     for mmsi, vdf in normalized.items():
         recs = vdf.sort("dt").to_dicts()
         n = len(recs)
@@ -206,12 +221,7 @@ def main():
                     i += 1
                     continue
                 cog_val = safe_cog(rec["cog"])
-                is_inb = is_inbound_heading(cog_val)
-
-                if not is_inb:
-                    was_inside = True
-                    i += 1
-                    continue
+                is_inbound = is_inbound_entrance(cog_val)
 
                 # Search forward for berth arrival
                 j = i + 1
@@ -224,20 +234,25 @@ def main():
                     if in_box(rn["lat"], rn["lon"], DESTINATION_ZONE):
                         ns = safe_sog(rn["sog"])
                         if ns < 1.5 and dur >= 1.0:
+                            v_data = {
+                                "mmsi": mmsi, "t0": t0, "t_arr": rn["dt"], "duration_h": dur,
+                                "sog_t0": sog0, "cog_t0": cog_val, "is_train": t0 < split_boundary,
+                                "length": rec.get("length"), "width": rec.get("width"), "draft": rec.get("draft"),
+                                "vessel_type": rec["vessel_type"], "hour": t0.hour, "dayofweek": t0.weekday(),
+                            }
                             if t0 <= right_bound:
-                                cohort_a1.append({
-                                    "mmsi": mmsi, "t0": t0, "t_arr": rn["dt"],
-                                    "duration_h": dur,
-                                    "sog_t0": sog0, "cog_t0": cog_val,
-                                    "is_train": t0 < split_boundary,
-                                    "length": rec.get("length"),
-                                    "width": rec.get("width"),
-                                    "draft": rec.get("draft"),
-                                    "vessel_type": rec["vessel_type"],
-                                })
-                            found = True
+                                if is_inbound:
+                                    cohort_a1.append(v_data)
+                                cohort_a2.append(v_data)
+                                found = True
                             break
                     j += 1
+
+                # If not inbound and not found, allow checking next crossing for Cohort A2
+                if not is_inbound and not found:
+                    was_inside = True
+                    i += 1
+                    continue
 
                 was_inside = True
                 i = max(j if found else i + 1, i + 1)
@@ -245,12 +260,31 @@ def main():
                 was_inside = inside
                 i += 1
 
-    n_train_a1 = sum(1 for a in cohort_a1 if a["is_train"])
-    n_test_a1 = sum(1 for a in cohort_a1 if not a["is_train"])
-    print(f"Cohort A1: {len(cohort_a1)} arrivals ({n_train_a1} Train, {n_test_a1} Test)")
+    print(f"Cohort A1 (Strict Inbound First Crossing): {len(cohort_a1)} arrivals "
+          f"({sum(1 for a in cohort_a1 if a['is_train'])} Train, {sum(1 for a in cohort_a1 if not a['is_train'])} Test)")
+    print(f"Cohort A2 (Inbound with Re-entry Allowed): {len(cohort_a2)} arrivals "
+          f"({sum(1 for a in cohort_a2 if a['is_train'])} Train, {sum(1 for a in cohort_a2 if not a['is_train'])} Test)")
+
+    # Full-trip baseline on Cohort A1
+    train_a1 = [a for a in cohort_a1 if a["is_train"]]
+    test_a1 = [a for a in cohort_a1 if not a["is_train"]]
+    y_tr_a1 = np.array([a["duration_h"] for a in train_a1])
+    y_te_a1 = np.array([a["duration_h"] for a in test_a1])
+    mmsi_te_a1 = np.array([a["mmsi"] for a in test_a1])
+
+    med_a1 = float(np.median(y_tr_a1))
+    mae_a1 = float(np.mean(np.abs(y_te_a1 - med_a1)))
+    ci_l_a1, ci_h_a1, ci_w_a1 = cluster_bootstrap_ci(
+        mmsi_te_a1, y_te_a1, np.full_like(y_te_a1, med_a1),
+        lambda yt, yp: np.mean(np.abs(yt - yp))
+    )
+    print(f"Cohort A1 Full-Trip Historical Median (scalar = {med_a1:.2f} h):")
+    print(f"  Test N: {len(test_a1)} arrivals")
+    print(f"  MAE:    {mae_a1:.3f} h  [95% CI: {ci_l_a1:.3f}, {ci_h_a1:.3f}] (width: {ci_w_a1:.3f} h)")
 
     # ─────────────────────────────────────────────────────────────────
-    # PART 2: UNCONDITIONED SNAPSHOT EXTRACTION (v2.1 §3.2-3.3)
+    # PART 2: UNCONDITIONED SNAPSHOT EXTRACTION (v2.1 Section 3.2-3.3)
+    #   - Triggered by STATE, not outcome
     #   - NO filter on true remaining time
     #   - Tag anchored_midway and right_censored snapshots
     # ─────────────────────────────────────────────────────────────────
@@ -271,8 +305,8 @@ def main():
             t0 = v["t0"]
             t_arr = v["t_arr"]
 
-            # Gather all pings in [t0, t_arr + 1h] inside corridor
-            v_pings = [p for p in recs if t0 <= p["dt"] <= t_arr + timedelta(hours=1)
+            # Corridor pings in [t0, t_arr]
+            v_pings = [p for p in recs if t0 <= p["dt"] <= t_arr
                        and in_box(p["lat"], p["lon"], CORRIDOR)]
             if not v_pings:
                 continue
@@ -292,7 +326,7 @@ def main():
                 else:
                     slow_streak_start = None
 
-            # Sample every 10 minutes from t0
+            # Sample every 10 minutes from t0 to t_arr
             curr_time = t0
             while curr_time < t_arr:
                 # Find closest ping within 5 min
@@ -307,14 +341,14 @@ def main():
                 if best_ping is not None and best_diff <= timedelta(minutes=5):
                     sog = safe_sog(best_ping["sog"])
                     cog = safe_cog(best_ping["cog"])
-                    inbound_head = is_inbound_heading(cog)
+                    inbound_head = is_inbound_corridor(cog)
 
                     if sog >= 3.0 and inbound_head:
                         n_raw += 1
                         rem_dur = (t_arr - curr_time).total_seconds() / 3600.0
                         rem_km = channel_distance_to_berth(best_ping["lat"], best_ping["lon"])
 
-                        # Right-censoring check (v2.1 §3.3):
+                        # Right-censoring check (v2.1 Section 3.3):
                         # Snapshot within 3h of dataset end AND arrival is unobserved
                         is_rc = (curr_time > (max_ts - timedelta(hours=3)) and t_arr > max_ts)
 
@@ -322,7 +356,7 @@ def main():
                             n_censored += 1
                         else:
                             # *** NO FILTER ON rem_dur ***
-                            # This is the core v2.1 change: include ALL snapshots
+                            # Unconditioned selection: all state-triggered snapshots kept
                             if voyage_anchored:
                                 n_anchored += 1
 
@@ -354,28 +388,28 @@ def main():
     print(f"  Total state-triggered snapshots: {n_raw}")
     print(f"  Right-censored (excluded):       {n_censored}")
     print(f"  Anchored-midway tagged:          {n_anchored}")
-    print(f"  Valid uncensored snapshots:       {len(snapshots)}")
+    print(f"  Valid uncensored snapshots:      {len(snapshots)}")
     print(f"  Share with true y_rem > 3h:      {share_gt3h:.1f}%")
 
-    # ── Split: Train / Calib / Test ──
+    # -- Split: Train / Calib / Test --
     snap_train_full = [s for s in snapshots if s["is_train"]]
     snap_test = [s for s in snapshots if not s["is_train"]]
 
-    # Conformal split on train: Train Slice (Jan 1 – Feb 15) vs Calib Slice (Feb 16 – Feb 29)
-    # See EVAL_PROTOCOL_V2_1.md §5.2 for isolation specification.
+    # Conformal split on train: Train Slice (Jan 1 - Feb 15) vs Calib Slice (Feb 16 - Feb 29)
+    # Specification: EVAL_PROTOCOL_V2_1.md Section 5.2.
     calib_cutoff = datetime(2024, 2, 16, 0, 0, 0)
     snap_train_slice = [s for s in snap_train_full if s["snap_time"] < calib_cutoff]
     snap_calib_slice = [s for s in snap_train_full if s["snap_time"] >= calib_cutoff]
 
     print(f"\nChronological Split:")
-    print(f"  Train Slice (Jan 1 – Feb 15): {len(snap_train_slice)} snapshots "
+    print(f"  Train Slice (Jan 1 - Feb 15): {len(snap_train_slice)} snapshots "
           f"({len(set(s['mmsi'] for s in snap_train_slice))} vessels)")
-    print(f"  Calib Slice (Feb 16 – Feb 29): {len(snap_calib_slice)} snapshots "
+    print(f"  Calib Slice (Feb 16 - Feb 29): {len(snap_calib_slice)} snapshots "
           f"({len(set(s['mmsi'] for s in snap_calib_slice))} vessels)")
-    print(f"  Test Set    (March 1 – 31):    {len(snap_test)} snapshots "
+    print(f"  Test Set    (March 1 - 31):    {len(snap_test)} snapshots "
           f"({len(set(s['mmsi'] for s in snap_test))} vessels)")
 
-    # ── Prepare features ──
+    # -- Prepare features --
     snap_features = ["lat", "lon", "rem_km", "sog", "cog", "length", "draft"]
     tr_medians = {}
     for col in snap_features:
@@ -420,21 +454,19 @@ def main():
         calib_preds[q] = reg.predict(X_calib)
         test_raw_preds[q] = reg.predict(X_test)
 
-    # ── Conformal calibration on HELD-OUT CALIB SLICE ONLY (v2.1 §5.2) ──
-    # Lines L340-L355: conformal residuals computed ONLY on calib slice
+    # -- Conformal calibration on HELD-OUT CALIB SLICE ONLY (v2.1 Section 5.2) --
+    # Code lines L366-L377: residuals and shifts computed ONLY on calibration slice
     conformal_shifts = {}
     for q in quantiles:
-        # Residual = y_calib - y_hat_calib (computed on calib slice data ONLY)
         residuals = y_calib - calib_preds[q]
-        # Conformal shift: the q-th quantile of the residuals
         shift = float(np.percentile(residuals, q * 100.0))
         conformal_shifts[q] = shift
-        cov_calib = np.mean(y_calib <= (calib_preds[q] + shift)) * 100.0
+        cov_calib = float(np.mean(y_calib <= (calib_preds[q] + shift)) * 100.0)
         print(f"  Conformal Shift for P{int(q*100)}: {shift:+.4f} h "
               f"(Calib Coverage: {cov_calib:.1f}%)")
 
-    # ── Apply monotonic sorting + conformal shift to test predictions ──
-    # Lines L358-L370: applied to test WITHOUT re-fitting
+    # -- Apply monotonic sorting + conformal shift to test predictions --
+    # Code lines L379-L393: applied to test WITHOUT re-fitting
     raw_p50 = test_raw_preds[0.50]
     raw_p80 = np.maximum(test_raw_preds[0.80], raw_p50)
     raw_p95 = np.maximum(test_raw_preds[0.95], raw_p80)
@@ -450,7 +482,7 @@ def main():
                      np.sum(test_calib_preds[0.80] > test_calib_preds[0.95]))
     print(f"  Post-Processing Quantile Inversions on Test: {inversions}")
 
-    # ── Baselines ──
+    # -- Baselines --
     # 1. Kinematic: d_rem / SOG
     naive_preds = np.array([
         (s["rem_km"] / 1.852) / max(s["sog"], 1.0) for s in snap_test
@@ -473,7 +505,7 @@ def main():
 
     hist_preds = np.array([get_hist_median(s) for s in snap_test])
 
-    # 3. Bucket Median Baseline (v2.1 §4.3): predict training median for the distance bucket
+    # 3. Bucket Median Baseline (v2.1 Section 4.3): predict training median for the distance bucket
     bucket_train_medians = {}
     for bname, (d_lo, d_hi) in DISTANCE_BUCKETS.items():
         subset_y = [s["rem_dur_h"] for s in snap_train_full
@@ -489,7 +521,7 @@ def main():
     bucket_median_preds = np.array([get_bucket_median_pred(s["rem_km"]) for s in snap_test])
 
     # ─────────────────────────────────────────────────────────────────
-    # PART 4: EVALUATION BY DISTANCE-TO-BERTH BUCKETS (v2.1 §3.4)
+    # PART 4: EVALUATION BY DISTANCE-TO-BERTH BUCKETS (v2.1 Section 3.4)
     # ─────────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print("SHORT-HORIZON RESULTS BY DISTANCE-TO-BERTH BUCKET (UNCONDITIONED)")
@@ -500,7 +532,6 @@ def main():
 
     all_bucket_results = {}
 
-    # Add an "Overall" bucket that includes all snapshots
     eval_buckets = dict(DISTANCE_BUCKETS)
     eval_buckets["Overall"] = (0.0, 999.0)
 
@@ -508,7 +539,7 @@ def main():
         mask = (drem_test >= d_lo) & (drem_test < d_hi)
         n_b = int(np.sum(mask))
         if n_b == 0:
-            print(f"\nBucket: {bname} — EMPTY (0 snapshots)")
+            print(f"\nBucket: {bname} -- EMPTY (0 snapshots)")
             continue
 
         y_b = y_test[mask]
@@ -523,7 +554,7 @@ def main():
         p80_b = test_calib_preds[0.80][mask]
         p95_b = test_calib_preds[0.95][mask]
 
-        # ── Core Metrics ──
+        # -- Core Metrics --
         mae_naive = float(np.mean(np.abs(y_b - naive_b)))
         mae_hist = float(np.mean(np.abs(y_b - hist_b)))
         mae_bmed = float(np.mean(np.abs(y_b - bmed_b)))
@@ -538,16 +569,16 @@ def main():
         cov_p80 = float(np.mean(y_b <= p80_b) * 100.0)
         cov_p95 = float(np.mean(y_b <= p95_b) * 100.0)
 
-        # ── Interval Widths (v2.1 §6) ──
+        # -- Interval Widths (v2.1 Section 6) --
         iw_p80 = float(np.mean(p80_b - p50_b))
         iw_p95 = float(np.mean(p95_b - p50_b))
         iw_p50_abs = float(np.mean(p50_b))  # mean point estimate
 
-        # ── Shares ──
-        share_gt3h = float(np.mean(y_b > 3.0) * 100.0)
-        share_anchored = float(np.mean(anch_b) * 100.0)
+        # -- Shares --
+        share_b_gt3h = float(np.mean(y_b > 3.0) * 100.0)
+        share_b_anchored = float(np.mean(anch_b) * 100.0)
 
-        # ── Bootstrap CIs ──
+        # -- Bootstrap CIs --
         ci_l, ci_h, ci_w = cluster_bootstrap_ci(
             mmsi_b, y_b, p50_b,
             lambda yt, yp: np.mean(np.abs(yt - yp)))
@@ -555,7 +586,7 @@ def main():
             mmsi_b, y_b, p95_b,
             lambda yt, yp: np.mean(yt <= yp) * 100.0)
 
-        # ── Disjoint (Unseen) Vessels ──
+        # -- Disjoint (Unseen) Vessels --
         mask_disj = mask & disjoint_mask
         n_disj = int(np.sum(mask_disj))
         if n_disj > 0:
@@ -570,8 +601,8 @@ def main():
             "n_snapshots": n_b,
             "n_unique_vessels": len(np.unique(mmsi_b)),
             "n_unseen_vessels": len(np.unique(mmsi_test[mask_disj])) if n_disj > 0 else 0,
-            "share_y_rem_gt_3h_pct": share_gt3h,
-            "share_anchored_midway_pct": share_anchored,
+            "share_y_rem_gt_3h_pct": share_b_gt3h,
+            "share_anchored_midway_pct": share_b_anchored,
             "mae_kinematic_d_sog": mae_naive,
             "mae_hist_segment_median": mae_hist,
             "mae_bucket_median_baseline": mae_bmed,
@@ -593,28 +624,28 @@ def main():
             "unseen_vessels_coverage_p95": cov95_disj,
         }
 
-        # ── Print ──
+        # -- Print --
         print(f"\nBucket: {bname} (N = {n_b} snapshots, "
               f"{len(np.unique(mmsi_b))} vessels):")
-        print(f"  Share y_rem > 3h:        {share_gt3h:.1f}%")
-        print(f"  Share anchored midway:   {share_anchored:.1f}%")
-        print(f"  ── MAE Comparison ──")
+        print(f"  Share y_rem > 3h:        {share_b_gt3h:.1f}%")
+        print(f"  Share anchored midway:   {share_b_anchored:.1f}%")
+        print(f"  -- MAE Comparison --")
         print(f"    Kinematic (d/SOG):       {mae_naive:.3f} h")
         print(f"    Hist Segment Median:     {mae_hist:.3f} h")
         print(f"    Bucket Median Baseline:  {mae_bmed:.3f} h")
         print(f"    QR P50 (calibrated):     {mae_p50:.3f} h  "
               f"[95% CI: {ci_l:.3f}, {ci_h:.3f}] (width: {ci_w:.3f})")
         print(f"    MedAE (QR P50):          {medae_p50:.3f} h")
-        print(f"  ── Coverage ──")
+        print(f"  -- Coverage --")
         print(f"    P50: {cov_p50:.1f}%  |  P80: {cov_p80:.1f}%  |  "
               f"P95: {cov_p95:.1f}% [CI: {cov95_l:.1f}%, {cov95_h:.1f}%]")
-        print(f"  ── Interval Widths (mean across snapshots) ──")
-        print(f"    P80 − P50: {iw_p80:.3f} h  |  P95 − P50: {iw_p95:.3f} h")
-        print(f"  ── Pinball Loss ──")
-        print(f"    τ=0.50: {pb_p50:.4f}  |  τ=0.80: {pb_p80:.4f}  |  "
-              f"τ=0.95: {pb_p95:.4f}")
+        print(f"  -- Interval Widths (mean across snapshots) --")
+        print(f"    P80 - P50: {iw_p80:.3f} h  |  P95 - P50: {iw_p95:.3f} h")
+        print(f"  -- Pinball Loss --")
+        print(f"    tau=0.50: {pb_p50:.4f}  |  tau=0.80: {pb_p80:.4f}  |  "
+              f"tau=0.95: {pb_p95:.4f}")
         if mae_p50_disj is not None:
-            print(f"  ── Unseen Vessels ──")
+            print(f"  -- Unseen Vessels --")
             print(f"    MAE P50: {mae_p50_disj:.3f} h  |  "
                   f"P95 Coverage: {cov95_disj:.1f}%")
 
@@ -633,9 +664,22 @@ def main():
         "total_snapshots": len(snapshots),
         "total_censored": n_censored,
         "total_anchored": n_anchored,
-        "share_gt3h_overall_pct": sum(1 for s in snapshots if s["rem_dur_h"] > 3.0) / max(len(snapshots), 1) * 100,
+        "share_gt3h_overall_pct": share_gt3h,
         "bucket_results": all_bucket_results,
-        "cohort_a1_count": len(cohort_a1),
+        "cohort_a1_full_trip": {
+            "total_arrivals": len(cohort_a1),
+            "train_arrivals": len(train_a1),
+            "test_arrivals": len(test_a1),
+            "hist_median_scalar_h": med_a1,
+            "hist_median_mae": mae_a1,
+            "bootstrap_ci": [ci_l_a1, ci_h_a1],
+            "ci_width": ci_w_a1,
+        },
+        "cohort_a2_full_trip": {
+            "total_arrivals": len(cohort_a2),
+            "train_arrivals": sum(1 for a in cohort_a2 if a["is_train"]),
+            "test_arrivals": sum(1 for a in cohort_a2 if not a["is_train"]),
+        }
     }
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(results_payload, f, indent=2)
