@@ -595,3 +595,94 @@ $$N \ge \left( \frac{1.96 \cdot 15.909}{\delta} \right)^2$$
 - Phases completed: Space recovery, region selection, historical validation, collector build (59/59 tests), ETA baseline experiment, audit & evidence, final corrections.
 - Remaining before Tier 1 build: User review of corrected metrics, potential Jan–Mar 2024 data pull.
 
+---
+
+## D017: Live Scoreboard Traffic Eligibility & Non-Commercial Exclusion
+**Date:** 2026-10-26
+**Status:** ADOPTED FOR SCOREBOARD DESIGN
+
+### 1. Principle: Do Not Score Non-Commercial Traffic with Commercial Model
+- The baseline ETA model is trained strictly on commercial vessel voyages (types 70–89: cargo, tanker, passenger).
+- Non-commercial vessels (tugs, pushboats, fishing boats, recreational craft, pilot tenders) have fundamentally distinct kinematics, loitering patterns, and docking destinations. Scoring them with a commercial-trained model produces nonsensical errors and distorts evaluation.
+- However, in live AISStream feeds, ~73% of vessels lack static type metadata, and seeding from 2024 historical archives covers only ~1.1% of active live MMSIs due to fleet turnover.
+
+### 2. Live Eligibility Dual Definitions
+To resolve the untyped vessel challenge without contaminating commercial evaluations, the live scoreboard evaluates two cohorts and reports both:
+1. **Behavioral Inbound Eligibility (Cohort A):**
+   - Evaluates any vessel regardless of static type that exhibits commercial-like inbound channel transit behavior:
+     - Enters Entrance Zone (`[29.30, 29.45] x [-94.85, -94.65]`) at $\text{SOG} \ge 3.0$ kn.
+     - Inbound COG: Heading directed into the channel ($270^\circ \le \text{COG} \le 360^\circ$ or $0^\circ \le \text{COG} \le 30^\circ$).
+     - Length filter: $\ge 50$m (when reported) or sustained continuous displacement past Bolivar Roads towards inner channel.
+2. **Unclassified Commercial / Verified Commercial (Cohort B):**
+   - Strictly verified commercial vessels ($70 \le \text{type} \le 89$ via live Type 5/24 static messages or cache) PLUS unclassified vessels ($\text{type} \text{ IS NULL}$) that meet Cohort A's behavioral inbound criteria.
+   - Known non-commercial vessels (tugs type 31/52, pleasure craft type 36/37, pilot boats type 50, fishing type 30) are **strictly excluded** from scoring.
+
+### 3. Reporting Requirement
+The live scoreboard will present metrics disaggregated by:
+- **Verified Commercial Only** (conservative, lower $N$)
+- **Behavioral + Unclassified Commercial** (operational, higher $N$, tracks real traffic)
+
+---
+
+## D018: Task 2 Fixes — Logon Schedule, 90s Sleep Resilience, and Inter-Session Semantics
+**Date:** 2026-10-26
+**Status:** IMPLEMENTED & EMPIRICALLY VERIFIED
+
+### 1. Timezone & Schedule Fix
+- **Time Conversion:** The machine operates on Indian Standard Time (IST, UTC+05:30).
+  $$\text{Time}_{\text{UTC}} = \text{Time}_{\text{IST}} - 5\text{h}30\text{m}$$
+  Earlier document referenced 12:00 local as 18:00 UTC, which was erroneous (12:00 IST is actually 06:30 UTC).
+- **Trigger Redesign:** The fixed daily clock trigger was removed from Task Scheduler. The task `\ORCASTRA_Collector` now triggers on **User Logon** (`<LogonTrigger>`), enforces AC power (`DisallowStartIfOnBatteries=true`), starts missed tasks immediately upon wake (`StartWhenAvailable=true`), and caps each run at 6 hours (`ExecutionTimeLimit=PT6H`).
+- **UTC Session Logging:** Every collector session logs dual timestamps: `YYYY-MM-DD HH:MM:SS UTC [Local: YYYY-MM-DD HH:MM:SS (IST, UTC+05:30)]`.
+
+### 2. Sleep Detection Threshold (90 Seconds) & Flush Resilience
+- Raised the wall-clock jump trigger from 15s to **90.0s**.
+- **Empirical Flush Test (`--test-slow-flush`):** Verified that a 15-second heavy I/O / SQLite slow flush does NOT trigger the 90s threshold, preventing spurious session splits during intense writes.
+- **Inter-Session Semantics Across Sleep:**
+  - AISStream is a real-time ephemeral WebSocket stream without backlog buffering. Any period during which the machine is asleep represents permanently lost observations.
+  - Therefore, sessions separated by a sleep event are registered as distinct, non-contiguous sessions in the ledger.
+  - A continuous healthy window cannot cross a sleep boundary. However, for short-horizon ETA (e.g. 1–2h before arrival), an arrival is scorable as long as its short-horizon window falls entirely within one post-resume session.
+
+---
+
+## D019: Crossing-Level Audit, Stage Labels & Non-Inbound Exclusion
+**Date:** 2026-10-26
+**Status:** ADOPTED FOR TIER 1
+
+### 1. Crossing-Level vs Ping-Level Exclusions (91-Day Full Audit)
+- Previous "138,314 stationary entrance exclusions" was a ping-level count of position reports while loitering inside the box.
+- At the **voyage crossing level** (transitions from outside to inside entrance box):
+  - Total entrance crossings: **4,672**
+  - Left-censored ($<6$h): **19 (0.4%)**
+  - Stationary at crossing ($\text{SOG} < 3$ kn): **28 (0.6%)** — nearly all commercial vessels cross at speed.
+  - Right-censored ($> T_{\max} - 72$h): **190 (4.1%)**
+  - Invalid / Through-traffic ($> 72$h or unberthed): **3,427 (73.4%)** (mostly proceeding upstream past Jacintoport).
+  - Valid completed arrivals: **1,008 (21.6%)**
+
+### 2. Investigation of >12h Trips and Anchorage Geography
+- Of 1,008 arrivals, **228 (22.6%)** have duration $> 12$h. The old Bolivar-only box captured only 73 of these 228 trips (32.0%).
+- Empirical spatial analysis of stationary pings revealed where the remaining vessels waited:
+  - **Gulf Fairway / Offshore Anchorage (Area A & B):** `[29.10, 29.32] x [-94.85, -94.55]` (outside entrance channel in Gulf). **86 voyages** waited here for pilots before entering.
+  - **Galveston Harbor / Pelican Island:** `[29.28, 29.34] x [-94.85, -94.75]`. **21 voyages** anchored here.
+  - Expanding the anchorage definition to include Gulf Fairway and Galveston Harbor increases anchored trip capture to **154 voyages (63.6% of >12h trips)**.
+
+### 3. Non-Inbound Arrivals Exclusion
+- 109 arrivals entered with non-inbound COG (median COG = 156.1°, heading SSE away from port out to sea).
+- **Performance:** Inbound arrivals have median duration 3.85h (historical median MAE = 6.686h). Non-inbound arrivals have median duration **41.36h** and historical median MAE = **36.577h**.
+- Non-inbound arrivals represent offshore loitering and holding patterns rather than active channel approaches. They are **strictly excluded** from the primary benchmark.
+
+---
+
+## D020: Operational Definition of Live Cohort A
+**Date:** 2026-10-26
+**Status:** SPECIFIED FOR LIVE SCOREBOARD
+
+To enable live scoring without unobserved historical fields or complex profile tracing:
+- **Location:** Position inside Entrance Zone `[29.30, 29.45] x [-94.85, -94.65]`.
+- **Observation Density:** At least $N \ge 3$ consecutive AIS reports within the last 15 minutes.
+- **Speed:** Mean SOG over the last $N$ reports $\ge 3.0$ kn.
+- **Direction:** Median COG over the last $N$ reports directed inbound: $270^\circ \le \text{COG} \le 360^\circ$ or $0^\circ \le \text{COG} \le 30^\circ$.
+- **Length Filter:** Length $\ge 50$m *only if reported* in static messages (not required if null/missing).
+
+
+

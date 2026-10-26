@@ -106,27 +106,99 @@
 | Non-inbound COG | 23 of 257 arrivals; kept with documentation |
 | Pass-through vessels | 226 documented as selection effect (upstream terminal traffic) |
 
-### Current Environment & Status (2026-10-14)
+### M0 Closeout Status (2026-10-14) — CLOSED ✅
+- Houston Ship Channel confirmed as target operational region.
+- Hybrid data design confirmed: NOAA historical for training, AISStream for live evaluation.
+- Full-trip ETA designated historical replay only.
+- Live scoreboard scoped to short-horizon ETA (last 1–2 hours before berthing).
+- Total M0 agent-hours: ~12h of 32h hard stop.
+- Git commit: `22e8d99` (30 files, 7,293 lines).
 
-| Metric | Value |
+---
+
+## Tier 1: Approved Preparation Tasks (2026-10-26)
+
+### Task 1: NOAA Jan–Mar 2024 Data Pull & Full Arrival Audit ✅
+
+| Item | Result |
 |---|---|
-| C: free space | **~10 GB** |
-| D: free space | **~38 GB** |
-| NOAA 28-day data (D:) | 283.65 MB |
-| Live session data (D:) | 35.5 MB |
-| Collector test suite | 59/59 passing |
-| **M0 agent-hours used** | **~12h of 32h hard stop** |
+| Temporal scope | 91 consecutive days: 2024-01-01 to 2024-03-31 (full Q1 2024) |
+| Geographic coverage | Houston bounding box `[29.0, 29.9] x [-95.3, -94.4]` (0 violations) |
+| Columns retained | Slim schema (13 columns): dropped vessel_name, imo, call_sign, transceiver |
+| Storage footprint | **873.04 MB** on D: (under 1,024 MB hard budget). Jan 1–28 hardlinked from `noaa_28d` (0 extra blocks). |
+| Existing Jan 28-day data | Preserved untouched in `D:\ORCASTRA_DATA\historical\noaa_28d` (283.65 MB) |
+| Resumability & integrity | SHA-256 checksums recorded for all 91 daily files in `manifest.json` |
+| Total records | **51,058,803 rows** across 91 parquet files |
+| Data hygiene | 1,444 internal duplicates (0.0028%), 0 geo violations, 0 timestamp violations |
+| Monthly rows & vessels | • 2024-01: 16,356,580 rows, 2,211 unique vessels<br>• 2024-02: 16,661,549 rows, 2,327 unique vessels<br>• 2024-03: 18,040,674 rows, 2,448 unique vessels |
+| Commercial subset | 7,137,652 records across 1,608 unique commercial MMSIs |
+| **72h Arrival Audit (Full 91d)** | • Raw entrance approaches (pings): 154,563<br>• **Discrete boundary crossings:** 4,672 (19 left-censored, 28 stationary at crossing, 190 right-censored, 3,427 upstream/through-traffic, 1,008 completed)<br>• **Valid completed arrivals:** 1,008 (~11.0/day) |
+| Monthly completed arrivals | • 2024-01: **320 arrivals** (270 unique vessels)<br>• 2024-02: **357 arrivals** (291 unique vessels)<br>• 2024-03: **328 arrivals** (270 unique vessels) |
+| Unique commercial vessels | **679 unique vessels** with completed arrivals (483 single-trip, 196 multi-trip) |
+| Stage labels & >12h dwells | • 228 trips > 12h: Old Bolivar-only captured 73 (32.0%).<br>• Investigation revealed vessels waited in **Gulf Fairway / Offshore Anchorage** (86 voyages) and **Galveston Harbor** (21 voyages).<br>• Comprehensive anchorage captures **154 voyages (63.6% of >12h trips)**. |
+| Directionality & Exclusion | Inbound: 899 arrivals (median duration 3.85h, MAE 6.69h).<br>Non-inbound: 109 arrivals (median duration **41.36h**, MAE **36.58h**, heading SSE away from port). **Strictly excluded from benchmark.** |
+| Duration distribution (h) | Min 2.36h, P10 2.81h, P25 3.42h, **Median 3.89h**, P75 4.67h, P90 42.18h, Max 71.82h |
 
-### Design Conclusions (M0)
+### Task 2: Recording Auto-Start & Supervisor Service (Fixed & Verified) ✅
 
-1. **Full-trip ETA** (entrance-to-berth) → **historical replay only.** Live daily sessions cannot capture both endpoints.
-2. **Short-horizon ETA** (1–2h before arrival) → **live scoreboard.** Feasible at ~3.4 arrivals/day with 7h sessions.
-3. **CI-width gate remains BLOCKED** until anchorage features reduce variance.
-4. **Stage labels** from AIS behavior (anchorage dwell), not from duration thresholds.
+| Item | Result |
+|---|---|
+| Scheduled task | `\ORCASTRA_Collector` registered in Windows Task Scheduler |
+| Schedule & trigger | **Logon trigger** (`<LogonTrigger>` with `<UserId>LAPTOP-EHI6MKH4\Sivasurya</UserId>`); runs-missed-task-ASAP (`StartWhenAvailable=true`); runs only on AC power (`DisallowStartIfOnBatteries=true`) |
+| Maximum session | 6 hours per session window (`ExecutionTimeLimit=PT6H`) |
+| Timezone conversion | System operates on Indian Standard Time (IST, UTC+05:30). $\text{UTC} = \text{IST} - 5\text{h}30\text{m}$. (12:00 IST = 06:30 UTC). Dual timestamps logged per session. |
+| Disk guards | Hard checks: D: $\ge 5.0$ GB, C: $\ge 3.0$ GB pre-flight and every 60s. Halts on violation. |
+| Sleep detection (90s) | Threshold raised to **90.0s**. Cleanly ends session on sleep jump, starts fresh session on wake. |
+| Heavy flush resilience | Tested via `--test-slow-flush`: 15s simulated slow flush did **NOT** trigger sleep threshold; session completed normally without interruption. |
+| Inter-session semantics | Consecutive sessions across sleep do not merge into a healthy window (AIS messages permanently lost during sleep). Short-horizon ETA (1–2h lookback) only requires falling within one continuous post-wake session. |
+| Crash/Kill recovery | Tested via `--test-kill`: unclosed sessions in `ledger.sqlite` automatically audited and updated to `crashed: Recovered on restart`. |
+| Live Cohort A definition | Operationalized with strictly live fields: $\ge 3$ consecutive reports in 15 min, mean $\text{SOG} \ge 3.0$ kn, median $\text{COG} \in [270, 360] \cup [0, 30]$, length $\ge 50$m *only if reported*. |
 
-### Next Steps
+---
 
-- [ ] User review of final corrections
-- [ ] Jan–Mar 2024 NOAA data pull (≤1.0 GB on D:, stream-filtered via DuckDB) — approved offline analysis
-- [ ] Tier 1 build (awaiting user approval)
+## Tier 1: Frozen Baseline Protocol & Single Evaluation Run ✅
+
+### Protocol Freeze (docs/EVAL_PROTOCOL.md)
+- Committed to git prior to modeling: commit `1a57426`.
+- Scope: Train Jan 1 – Feb 29 (60 days), Test March 1 – March 31 (31 days).
+- Eligible test arrivals: strictly $t_0 \le T_{\max} - 72\text{h}$ (March 1 to March 28). Entrants after March 28 right-censored.
+- Direction: Inbound COG only. Non-inbound excluded.
+
+### Baseline Evaluation Results (Train $N=665$, Test $N=320$ arrivals)
+
+| Model | MAE (hours) | 95% Bootstrap CI (MAE) | CI Width | MedAE (hours) | Pinball Loss | Empirical Coverage |
+|---|---|---|---|---|---|---|
+| **Historical Train Median** (3.87h) | **5.871 h** | [4.355, 7.490] | 3.135 h | 0.451 h | — | — |
+| **Naive Kinematic** ($d/\text{SOG}$) | 6.851 h | [5.312, 8.524] | 3.212 h | 1.542 h | — | — |
+| **Quantile Regression P50** | 5.993 h | [4.526, 7.598] | 3.072 h | **0.393 h** | 2.996 h | 60.0% (target 50%) [54.2%, 65.3%] |
+| **Quantile Regression P80** | 12.603 h | [11.153, 13.968] | 2.814 h | 8.078 h | 4.682 h | 78.1% (target 80%) [73.8%, 82.4%] |
+| **Quantile Regression P95** | 23.487 h | [21.824, 25.141] | 3.316 h | 22.946 h | 3.018 h | 87.2% (target 95%) [83.5%, 90.6%] |
+
+- **Quantile Monotonicity:** 29 inversions out of 320 test instances (independent tree fitting).
+- **Vessel-Disjoint Sensitivity Analysis:**
+  - **Overlapping cohort** ($N=111$ arrivals, seen in train): Hist Median MAE = **3.364h**, P50 MAE = **3.504h**, P95 coverage = 89.2%. (Repeating liner vessels have predictable direct transits).
+  - **Disjoint cohort** ($N=209$ arrivals, novel MMSIs): Hist Median MAE = **7.202h**, P50 MAE = **7.314h**, P95 coverage = 86.1%.
+- **Protocol Gate Outcome:** **STOP/REVISE.**
+  - Quantile crossing (29 inversions) and P95 under-coverage (87.2% vs 95% target) confirm that entrance-only kinematics cannot separate anchored vessels from direct transits without explicit anchorage queue features.
+
+---
+
+### Environment & Budget Accounting (2026-10-26)
+
+| Metric | Value | Budget / Cap | Status |
+|---|---|---|---|
+| **C: Free Space** | **28.81 GB** | $\ge 3.0$ GB | PASS (healthy) |
+| **D: Free Space** | **88.27 GB** | $\ge 5.0$ GB | PASS (healthy) |
+| **Historical Data (D:)** | **873.04 MB** | $\le 1,024$ MB (1.0 GB) | PASS (within 1 GB budget) |
+| **M0 Hours Used** | **~12.0 hours** | 32.0 hours hard stop | Completed |
+| **Tier 1 Hours Used** | **~1.5 hours** | — | Preparation & baselines |
+| **Total Agent Hours** | **~13.5 hours** | 32.0 hours | Well within safety margin |
+
+### Current Status
+- **STOPPED.**
+- Protocol frozen and committed (`docs/EVAL_PROTOCOL.md`).
+- Baselines run once and documented (`tier1_baseline_results.json`).
+- No replacement models trained. No live recording beyond scheduled test run.
+
+
 
