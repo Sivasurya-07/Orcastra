@@ -24,6 +24,7 @@ Thumbs.db
 # Data (lives outside repo at D:\ORCASTRA_DATA)
 *.parquet
 *.tmp.parquet
+!tests/fixtures/**/*.parquet
 data/recordings/
 
 # Generated artifacts — do not track

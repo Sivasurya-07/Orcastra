@@ -149,13 +149,14 @@ Data files (Parquet, SQLite, recordings) live outside the repository at `D:\ORCA
 ### Prerequisites
 - Python 3.12+
 - Windows 10/11 (Task Scheduler integration is Windows-specific)
+- ~1 GB free disk space for NOAA historical data (on D: by default, or set `ORCASTRA_DATA_DIR`)
 
 ### Environment
 
 ```bash
 # Clone the repository
-git clone <repo-url>
-cd ORCASTRA/repo
+git clone https://github.com/Sivasurya-07/Orcastra.git
+cd Orcastra/repo
 
 # Create .env from the template
 copy .env.example .env
@@ -166,9 +167,23 @@ cd services/collector
 pip install -e .
 cd ../..
 
-# Install analysis dependencies (for evaluation scripts)
+# Install analysis dependencies (for evaluation scripts and full model)
 pip install polars numpy scikit-learn pyarrow
 ```
+
+### Downloading NOAA Historical Data
+
+The evaluation scripts and full-model replay require NOAA MarineCadastre AIS data for Jan–Mar 2024:
+
+```bash
+# Downloads 91 daily Parquet files (~873 MB total) to D:\ORCASTRA_DATA\historical\noaa_3mo\
+python scripts/pull_noaa_3mo.py
+```
+
+- **Default path:** `D:\ORCASTRA_DATA\historical\noaa_3mo\` (set via `ORCASTRA_DATA_DIR` env var or edit `scripts/pull_noaa_3mo.py`)
+- **Expected size:** ~873 MB (91 daily files, ~560K rows/day, bbox-filtered to Houston Ship Channel)
+- **Resumable:** Skips already-downloaded files with SHA-256 checksum verification
+- The offline replay demo works **without this data** using a kinematic fallback, but model-based predictions require it.
 
 ### Running Tests
 
@@ -182,13 +197,23 @@ python services/collector/tests/test_forced_kill.py
 
 ### Offline Replay Demo
 
-Replays a saved AISStream recording and prints short-horizon ETA predictions from the frozen model. **Requires no network access.** Requires NOAA historical data at `D:\ORCASTRA_DATA\historical\noaa_3mo\` and a saved recording session.
+Replays a saved AIS recording through the ETA prediction pipeline. **No network access.** No live session created.
 
 ```bash
+# Uses the bundled sample fixture (20 anonymized events, 13 KB):
 python scripts/offline_replay_demo.py
+
+# Or point to a real recording session:
+python scripts/offline_replay_demo.py --session D:\ORCASTRA_DATA\recordings\session_20261008_160107
 ```
 
-The demo re-trains the deterministic model (identical parameters, `random_state=42`) from the NOAA historical data and applies it to the recorded session. Output is clearly labelled `OFFLINE REPLAY — RECORDED DATA, NOT LIVE`.
+**What it does:**
+1. Loads AIS events from Parquet files in the session directory.
+2. If NOAA data is available: re-trains the deterministic quantile model (identical parameters, `random_state=42`) and produces calibrated ETA intervals.
+3. If NOAA data is absent: falls back to kinematic `d_remaining / SOG` estimates.
+4. Prints predictions for every inbound vessel in the corridor.
+
+A tiny **bundled sample** recording ships with the repo at `tests/fixtures/sample_session/` (20 anonymized events, 13 KB) so the demo runs immediately after a fresh clone — no recording session or data download needed.
 
 ### Live Collection (Not Required for Evaluation)
 
@@ -199,6 +224,7 @@ python scripts/autostart_collector.py --duration 60
 # Check environment guards only
 python scripts/autostart_collector.py --check-guards
 ```
+
 
 ## Security
 

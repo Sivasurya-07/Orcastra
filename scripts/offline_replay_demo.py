@@ -41,7 +41,9 @@ BANNER = """
 
 # -- Paths --
 NOAA_DIR = Path(r"D:\ORCASTRA_DATA\historical\noaa_3mo")
-DEFAULT_SESSION = Path(r"D:\ORCASTRA_DATA\recordings\session_20261008_160107")
+REAL_SESSION = Path(r"D:\ORCASTRA_DATA\recordings\session_20261008_160107")
+FIXTURE_SESSION = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "sample_session"
+DEFAULT_SESSION = REAL_SESSION if REAL_SESSION.exists() else FIXTURE_SESSION
 
 NOAA_COLUMNS = [
     "mmsi", "base_date_time", "sog", "cog", "heading",
@@ -255,25 +257,23 @@ def main():
         print(f"[ERROR] No Parquet parts found in {events_dir}")
         return 1
 
-    # Check model prerequisites
-    if not NOAA_DIR.exists() or not list(NOAA_DIR.glob("houston_2024-*.parquet")):
-        print("[ERROR] NOAA historical data not found at expected path.")
-        print("[ERROR] Cannot replay: frozen model requires historical training data.")
-        print("[ERROR] No predictions fabricated.")
-        return 1
+    # Check model prerequisites — fall back to kinematic d/SOG if NOAA data absent
+    has_noaa = NOAA_DIR.exists() and bool(list(NOAA_DIR.glob("houston_2024-*.parquet")))
+    if not has_noaa:
+        print("[MODEL] NOAA historical data not found. Using kinematic d/SOG fallback only.")
+        print("[MODEL] To get full model predictions, download NOAA data first:")
+        print("[MODEL]   python scripts/pull_noaa_3mo.py")
 
-    # Train the deterministic model
-    try:
-        from sklearn.ensemble import HistGradientBoostingRegressor
-    except ImportError:
-        print("[ERROR] scikit-learn not installed. Cannot load model.")
-        return 1
+    # Train the deterministic model (or set up kinematic fallback)
+    models, conformal_shifts, tr_medians = None, None, {}
+    if has_noaa:
+        try:
+            from sklearn.ensemble import HistGradientBoostingRegressor
+            models, conformal_shifts, tr_medians = train_model_from_noaa()
+        except ImportError:
+            print("[MODEL] scikit-learn not installed. Using kinematic d/SOG fallback.")
 
-    models, conformal_shifts, tr_medians = train_model_from_noaa()
-    if models is None:
-        print("[ERROR] Model training failed: no historical data.")
-        return 1
-
+    use_model = models is not None
     snap_features = ["lat", "lon", "rem_km", "sog", "cog", "length", "draft"]
 
     # Load and replay the recorded session
@@ -307,20 +307,25 @@ def main():
             continue
 
         rem_km = channel_distance_to_berth(lat, lon)
-        feat_vals = [lat, lon, rem_km, sog, cog,
-                     rec.get("length") or tr_medians.get("length", 0),
-                     rec.get("draft") or tr_medians.get("draft", 0)]
-        # Handle None cog
-        feat_vals = [v if v is not None else tr_medians.get(snap_features[i], 0.0) for i, v in enumerate(feat_vals)]
-        X = np.array([feat_vals])
+        if use_model:
+            feat_vals = [lat, lon, rem_km, sog, cog,
+                         rec.get("length") or tr_medians.get("length", 0),
+                         rec.get("draft") or tr_medians.get("draft", 0)]
+            feat_vals = [v if v is not None else tr_medians.get(snap_features[i], 0.0) for i, v in enumerate(feat_vals)]
+            X = np.array([feat_vals])
 
-        raw_p50 = models[0.50].predict(X)[0]
-        raw_p80 = max(models[0.80].predict(X)[0], raw_p50)
-        raw_p95 = max(models[0.95].predict(X)[0], raw_p80)
+            raw_p50 = models[0.50].predict(X)[0]
+            raw_p80 = max(models[0.80].predict(X)[0], raw_p50)
+            raw_p95 = max(models[0.95].predict(X)[0], raw_p80)
 
-        p50 = max(raw_p50 + conformal_shifts[0.50], 0.05)
-        p80 = max(raw_p80 + conformal_shifts[0.80], p50)
-        p95 = max(raw_p95 + conformal_shifts[0.95], p80)
+            p50 = max(raw_p50 + conformal_shifts[0.50], 0.05)
+            p80 = max(raw_p80 + conformal_shifts[0.80], p50)
+            p95 = max(raw_p95 + conformal_shifts[0.95], p80)
+        else:
+            # Kinematic fallback: d_rem / SOG
+            km_to_nm = 0.539957
+            eta_kin = (rem_km * km_to_nm) / max(sog, 0.5)  # hours
+            p50, p80, p95 = eta_kin, eta_kin * 1.3, eta_kin * 2.0
 
         predictions.append({
             "mmsi": rec["mmsi"],
