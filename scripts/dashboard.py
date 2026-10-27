@@ -131,10 +131,14 @@ def start_collector_subprocess(duration_seconds: Optional[int] = None) -> tuple[
     if duration_seconds:
         cmd.extend(["--duration", str(duration_seconds)])
 
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(COLLECTOR_SRC) + os.pathsep + env.get("PYTHONPATH", "")
+
     try:
         proc = subprocess.Popen(
             cmd,
             cwd=str(REPO_ROOT),
+            env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,

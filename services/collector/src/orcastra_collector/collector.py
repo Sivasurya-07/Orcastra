@@ -17,6 +17,11 @@ from typing import Optional
 
 import psutil
 
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import orcastra_collector
+    __package__ = "orcastra_collector"
+
 from .config import CollectorConfig, DEFAULT_CONFIG
 from .parser import AisParser
 from .schema import AisEvent
