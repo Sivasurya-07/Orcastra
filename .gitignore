@@ -7,7 +7,7 @@ build/
 .venv/
 *.egg
 
-# Environment
+# Environment — NEVER commit .env (contains API keys)
 .env
 .env.local
 
@@ -24,6 +24,12 @@ Thumbs.db
 # Data (lives outside repo at D:\ORCASTRA_DATA)
 *.parquet
 *.tmp.parquet
+data/recordings/
+
+# Generated artifacts — do not track
+*.sqlite
+vessel_cache.*
+ledger.*
 
 # Node
 node_modules/
