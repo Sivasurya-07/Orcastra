@@ -188,12 +188,45 @@ python scripts/pull_noaa_3mo.py
 ### Running Tests
 
 ```bash
-# Collector test suite (52 assertions)
-python services/collector/tests/test_collector.py
+# Run all tests using project uv environment (Python 3.12):
+uv run --project services/collector pytest services/collector/tests/ -v
 
-# Forced kill + crash recovery tests (7 assertions)
-python services/collector/tests/test_forced_kill.py
+# Or run individual test suites directly:
+uv run --project services/collector python services/collector/tests/test_collector.py
+uv run --project services/collector python services/collector/tests/test_forced_kill.py
+uv run --project services/collector python services/collector/tests/test_live_eta_and_dashboard.py
 ```
+
+### Live ETA & Operations Dashboard
+
+Streamlit + Plotly interactive operations dashboard featuring dual modes:
+
+```bash
+# Launch dashboard in project uv environment (Python 3.12):
+uv run --project services/collector streamlit run scripts/dashboard.py
+```
+
+**Features & Architecture:**
+- **Dual Modes:**
+  - `LIVE`: Connects to atomic `latest_state.json` written by the collector subprocess. Start/Stop buttons manage the collector as an independent child subprocess. Does not auto-start at launch.
+  - `OFFLINE REPLAY`: Clearly labelled with a persistent red banner (`🔴 OFFLINE REPLAY — RECORDED DATA, NOT LIVE`). Replays saved recordings or the bundled test fixture from disk with **zero network access** and no API key.
+- **Graceful Offline Map Degradation:**
+  - The Houston Ship Channel radar map degrades gracefully with no internet: if tile servers are unreachable, it renders on a clean dark nautical coordinate plane with full axis grids, boundary polygons (entrance, corridor, destination berth box), waypoints, and vessel position markers still accurately plotted.
+- **Protocol v2.1 Honest Live ETA:**
+  - Uses the **Distance-Bucket Median Baseline** (the verified best MAE of 2.708 h overall):
+    - *Near Berth ($d \le 10$ km):* 1.010 h (~60.6 min)
+    - *Mid-Channel ($10 < d \le 25$ km):* 1.759 h (~105.5 min)
+    - *Outer Channel ($25 < d \le 50$ km):* 2.591 h (~155.5 min)
+    - *Beyond Entrance ($d > 50$ km):* 3.539 h (~212.3 min)
+  - Displays P50 point estimates; UI explicitly states that the **P95 uncertainty interval is ~40 h wide** (~41.8 h per Protocol v2.1).
+  - Enforces D017 Cohort A live eligibility: untyped vessels are treated as unknown commercial candidates, while known non-commercial craft (tugs, pleasure craft, pilots, fishing) are strictly excluded from scoring.
+  - Staleness cutoff: positions older than 5 minutes or with missing coordinates are marked "unavailable" (never shown as actively present).
+- **Process Lock & Single Instance:**
+  - An atomic lock file (`collector.lock`) prevents concurrent collector runs between Task Scheduler and the dashboard UI. Displays clear error with PID if an instance is already active.
+- **Immutable Prediction Logger & Live Scoreboard:**
+  - Predictions are immutably logged to `D:\ORCASTRA_DATA\prediction_log.sqlite`.
+  - When tracked vessels reach the berth box ($SOG < 1.5$ kn), actual arrival duration and absolute error are computed. The live scoreboard reports `"collecting (n = X)"` until $n \ge 30$, covering UTC dates and operational hours.
+  - UI explicitly notes: *Benchmark results do not establish live accuracy.*
 
 ### Offline Replay Demo
 

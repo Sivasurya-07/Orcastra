@@ -59,6 +59,13 @@ class CollectorConfig:
     vessel_cache_path: Path = DATA_ROOT / "vessel_cache.sqlite"
     ledger_path: Path = DATA_ROOT / "ledger.sqlite"
     quarantine_dir: Path = DATA_ROOT / "quarantine"
+    latest_state_path: Path = DATA_ROOT / "latest_state.json"
+    lock_file_path: Path = DATA_ROOT / "collector.lock"
+    prediction_log_path: Path = DATA_ROOT / "prediction_log.sqlite"
+
+    # Live state & staleness
+    state_update_interval: float = 2.0      # seconds between atomic latest_state flushes
+    stale_vessel_threshold_seconds: float = 300.0  # 5 min staleness threshold
 
     # Parser
     parser_version: str = "0.1.0"

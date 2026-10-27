@@ -31,6 +31,12 @@ data/recordings/
 *.sqlite
 vessel_cache.*
 ledger.*
+collector.lock
+*.lock
+latest_state.json
+*.tmp
+*.tmp.json
+prediction_log.*
 
 # Node
 node_modules/
@@ -39,3 +45,4 @@ out/
 
 # Logs
 *.log
+

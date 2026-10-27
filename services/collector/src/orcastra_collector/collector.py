@@ -23,6 +23,9 @@ from .schema import AisEvent
 from .writer import ParquetWriter
 from .vessel_cache import VesselCache
 from .ledger import Ledger
+from .lock import CollectorLock, CollectorLockError
+from .state import CollectorStateWriter
+from .live_eta import PredictionLogger, compute_live_eta
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +55,15 @@ class Collector:
             max_seconds=config.parquet_part_max_seconds,
             compression=config.parquet_compression,
         )
+
+        # Process lock and atomic live state
+        self.lock = CollectorLock(config.lock_file_path, self.session_id, mode="live")
+        self.state_writer = CollectorStateWriter(
+            config.latest_state_path,
+            self.session_id,
+            update_interval=config.state_update_interval,
+        )
+        self.prediction_logger = PredictionLogger(config.prediction_log_path)
 
         # Dedup set (mmsi_timestamp -> True)
         self._seen_keys: set[str] = set()
@@ -122,6 +134,11 @@ class Collector:
             bbox_json=json.dumps(self.config.bounding_boxes),
         )
 
+        # Acquire lock and initialize state file
+        self.lock.acquire()
+        self.state_writer.update_connection("initializing")
+        self.state_writer.flush(force=True)
+
         subscription = {
             "APIKey": self.api_key,
             "BoundingBoxes": self.config.bounding_boxes,
@@ -150,6 +167,9 @@ class Collector:
                         else:
                             log.info("Connected to AISStream")
 
+                        self.state_writer.update_connection("connected", reconnects=self._reconnects, drops=self._drops)
+                        self.state_writer.flush(force=True)
+
                         while True:
                             if self.duration and (time.time() - start_time) >= self.duration:
                                 break
@@ -174,6 +194,8 @@ class Collector:
                                 self._drops += 1
                                 log.warning("No message for %.0fs (drop #%d)",
                                             self.config.ws_recv_timeout, self._drops)
+                                self.state_writer.update_connection("connected", drops=self._drops)
+                                self.state_writer.flush(force=False)
 
                 except Exception as e:
                     self._reconnects += 1
@@ -183,6 +205,13 @@ class Collector:
                     )
                     log.warning("Connection error (#%d): %s. Retry in %.0fs",
                                 self._reconnects, str(e)[:100], delay)
+                    self.state_writer.update_connection(
+                        "reconnecting",
+                        reconnects=self._reconnects,
+                        drops=self._drops,
+                        error=str(e)[:100],
+                    )
+                    self.state_writer.flush(force=True)
 
                     if self._reconnects > self.config.reconnect_max_retries:
                         log.error("Max reconnect retries exceeded")
@@ -251,6 +280,40 @@ class Collector:
         # Write (including duplicates — flagged, not dropped)
         self.writer.add_event(event, raw)
         self._total_events += 1
+
+        # Update latest state
+        self.state_writer.update_connection("connected", last_message_time=receipt_time)
+        self.state_writer.update_vessel(event, name=event.vessel_name)
+        self.state_writer.update_stats(
+            socket_frames=self._socket_frames,
+            total_events=self._total_events,
+            duplicates=self._total_duplicates,
+            quarantined=self._total_quarantined,
+        )
+        self.state_writer.flush(force=False)
+
+        # Log prediction and check arrival scoring
+        if event.latitude is not None and event.longitude is not None and not event.is_duplicate:
+            v_dict = {
+                "mmsi": event.mmsi,
+                "name": event.vessel_name,
+                "latitude": event.latitude,
+                "longitude": event.longitude,
+                "sog": event.sog,
+                "cog": event.cog,
+                "vessel_type": event.vessel_type,
+                "last_seen_utc": receipt_time.isoformat(),
+            }
+            live_eta = compute_live_eta(v_dict, now_utc=receipt_time)
+            if live_eta.is_eligible:
+                self.prediction_logger.log_prediction(
+                    live_eta, obs_time=event.observation_time or receipt_time
+                )
+            if event.sog is not None and not event.sog_is_sentinel:
+                self.prediction_logger.check_arrival_and_score(
+                    event.mmsi, event.latitude, event.longitude, event.sog,
+                    obs_time=event.observation_time or receipt_time
+                )
 
     def _emit_heartbeat(self) -> None:
         """Record a heartbeat in the ledger."""
@@ -328,6 +391,17 @@ class Collector:
 
         self.vessel_cache.close()
         self.ledger.close()
+
+        # Finalize latest state and release process lock
+        self.state_writer.update_connection("stopped")
+        self.state_writer.update_stats(
+            socket_frames=self._socket_frames,
+            total_events=self._total_events,
+            duplicates=self._total_duplicates,
+            quarantined=self._total_quarantined,
+        )
+        self.state_writer.flush(force=True)
+        self.lock.release()
 
         log.info("="*60)
         log.info("Session complete: %s", self.session_id)
