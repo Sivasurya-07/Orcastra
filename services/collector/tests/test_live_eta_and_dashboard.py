@@ -368,8 +368,40 @@ def test_dashboard_does_not_auto_start_collector():
     status = get_collector_subprocess_status()
     # It must not have launched a collector process automatically
     assert_true(status is not None, "Dashboard status queried cleanly")
-    # If a live test isn't running, it must be False
-    print(f"  Collector running state on idle dashboard import: {status['running']}")
+def test_dual_eta_and_comparison_note():
+    print("\n=== Test: Dual ETA (Bucket Median & Kinematic Comparator) ===")
+    now = datetime(2026, 10, 27, 12, 0, 0, tzinfo=timezone.utc)
+    v_active = {
+        "mmsi": 367000099,
+        "name": "TEST_DUAL_ETA_CARGO",
+        "latitude": 29.50,
+        "longitude": -94.85,
+        "sog": 10.0,  # 10.0 kn = 18.52 km/h
+        "cog": 310.0,
+        "vessel_type": 70,
+        "last_seen_utc": now.isoformat(),
+    }
+    eta = compute_live_eta(v_active, now_utc=now)
+    assert_true(eta.is_eligible, "Active vessel is eligible")
+    assert_true(eta.predicted_eta_utc is not None, "Bucket median ETA present")
+    assert_true(eta.predicted_duration_h is not None, "Bucket median duration present")
+    assert_true(eta.kinematic_eta_utc is not None, "Kinematic ETA present")
+    assert_true(eta.kinematic_duration_h is not None, "Kinematic duration present")
+
+    # Verify kinematic formula: d_rem / (10.0 * 1.852)
+    expected_kin_h = round(eta.distance_to_berth_km / 18.52, 3)
+    assert_true(abs(eta.kinematic_duration_h - expected_kin_h) < 0.05, f"Kinematic duration matches formula ({eta.kinematic_duration_h} vs {expected_kin_h})")
+
+    # Verify note wording
+    expected_note = "Bucket median has lower average error because vessel holds dominate; kinematic is shown for comparison."
+    assert_true(eta.eta_comparison_note == expected_note, "Comparison note exact wording verified")
+
+    # Stationary vessel check
+    v_stat = dict(v_active, sog=1.5)
+    eta_stat = compute_live_eta(v_stat, now_utc=now)
+    assert_true(not eta_stat.is_eligible, "Stationary vessel ineligible")
+    assert_true(eta_stat.predicted_duration_h is None, "Stationary predicted duration None")
+    assert_true(eta_stat.kinematic_duration_h is None, "Stationary kinematic duration None")
 
 
 def main():
@@ -380,6 +412,7 @@ def main():
     test_stale_coordinates_eta_unavailable()
     test_missing_and_nan_coordinates()
     test_cohort_a_eligibility_and_non_commercial()
+    test_dual_eta_and_comparison_note()
     test_lock_file_acquisition_and_stale_recovery()
     test_state_file_atomicity()
     test_prediction_logging_and_arrival_scoring()
@@ -395,3 +428,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
+

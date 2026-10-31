@@ -775,3 +775,22 @@ To enable live scoring without unobserved historical fields or complex profile t
 2. **Mean Absolute Error (MAE) captures the long tail of midway anchorages:** 12.4%–17.0% of snapshots come from voyages that anchor midway inside the bay/channel. Because an anchorage delay adds 12 to 40+ hours, the unconditioned MAE reflects these heavy-tailed residuals (1.77h near berth, 2.73h overall), whereas MedAE isolates direct transit accuracy.
 3. **P95 Interval Width ($38.8$ to $55.9$ h) rigorously quantifies uncertainty:** Rather than yielding artificially tight intervals by discarding delayed vessels, the calibrated P95 interval accurately expands to absorb unexpected anchorages, achieving **97.9% empirical coverage** [96.4%, 99.1%] on the test set.
 4. **Generalization to Disjoint Vessels:** On completely novel vessels never seen in training ($N=167$ unseen vessels in March), P95 coverage remains well above nominal at **96.8%**, confirming robust out-of-sample uncertainty calibration.
+5. **Statistical Equivalence of Point Estimate Baselines:** Overall test MAEs across methods are 2.681 h for Historical Segment Median, 2.708 h for Distance-Bucket Median, and 2.725 h for QR P50 (with 95% bootstrap CI [1.785, 3.723]). Because the vessel-clustered bootstrap confidence intervals overlap heavily, these estimates are statistically indistinguishable. No model clearly beats the simple baselines on point MAE.
+
+---
+
+## D023: Phase 2 Live ETA Display, Map Radar UX, and Non-Dimming Streamlit Architecture
+
+### Context
+Phase 2 deploys live ETA capabilities to the Streamlit operational dashboard. Initial implementation required UI improvements to prevent whole-page reloading, clarify baseline equivalence, and compare kinematic transit speeds against empirical hold baselines.
+
+### Decision
+1. **Dual ETA Display:** The vessel table, map hover tooltips, and vessel detail panel present BOTH:
+   - **Distance-Bucket Median ETA:** Empirical baseline accounting for historical channel holds.
+   - **Kinematic ETA ($d / \text{SOG}$):** Direct speed comparator.
+   - Accompanying operational note: *"Bucket median has lower average error because vessel holds dominate; kinematic is shown for comparison."*
+2. **Neutral Baseline Wording:** Removed assertions that any single method is the "best MAE". The documentation and dashboard explicitly explain that segment median (2.681 h), bucket median (2.708 h), and QR P50 (2.725 h) have heavily overlapping bootstrap CIs and are statistically indistinguishable.
+3. **Map UX & Radar Interaction:** Permanent text labels on vessel markers removed to prevent clutter. Markers are colored by operational status (`Eligible / Active`, `Stationary`, `Out of Corridor`, `Non-Commercial`, `Stale`) with an interactive legend. Added a zoom / focus selector ("Focus on Channel Corridor", "Full Bay", "Inner Berth Box", "Entrance") to separate clustered vessels.
+4. **Vessel Selection Detail Panel:** A selectbox enables inspecting any tracked vessel's position, speed history, along-channel distance, dual ETAs, and Cohort A eligibility. Selection persists across page refreshes via `st.session_state`.
+5. **Non-Dimming Live Refresh:** Wrapped live telemetry panels in `@st.fragment(run_every=10)` to periodically poll `latest_state.json` every ~10s without full-page dimming, preserving immediate button responsiveness for Start/Stop Live controls.
+

@@ -12,7 +12,7 @@ Predicting when a commercial vessel will reach its berth after entering the Hous
 
 This is a research prototype, not a production system. Specifically:
 
-- **The quantile regression model does not beat the distance-bucket median baseline on MAE** (2.725h vs 2.708h overall). The model's value is in providing calibrated prediction _intervals_, not better point estimates.
+- **Point estimates across simple baselines and QR are statistically indistinguishable**: Segment median is 2.681 h, distance-bucket median is 2.708 h, and QR P50 is 2.725 h. Their vessel-clustered bootstrap confidence intervals overlap heavily, and no model clearly beats the simple baselines. The QR model's primary contribution is in providing calibrated prediction _intervals_, not superior point estimates.
 - **Prediction intervals are very wide** (P95 − P50 ≈ 38–56 hours) because the model honestly accounts for the possibility of mid-channel anchorage delays.
 - **Only voyages that reach berth within 72 hours are included.** Vessels that leave, turn around, or never berth are excluded.
 - **Historical data covers one winter season** (January–March 2024). Seasonal and year-over-year variation is unquantified.
@@ -96,7 +96,7 @@ Protocol v2.1 (`docs/EVAL_PROTOCOL_V2_1.md`) evaluates **all** state-triggered c
 **Interpretation:**
 - MedAE shows that the **typical** (non-anchoring) prediction is accurate to ~9–15 minutes.
 - MAE is dominated by the ~13% of voyages that anchor mid-channel for 12–40+ hours.
-- The model's MAE (2.725h) does NOT beat the bucket median baseline (2.708h). The model's value is in providing calibrated uncertainty intervals.
+- Segment median (2.681 h), bucket median (2.708 h), and QR P50 (2.725 h) have heavily overlapping bootstrap confidence intervals and are statistically indistinguishable; no model clearly beats the simple baselines. The QR model's value is in providing calibrated uncertainty intervals.
 - P95 coverage of 97.9% confirms honest uncertainty quantification — the intervals are wide because the underlying distribution has a heavy tail.
 
 ### Why Protocol v2 Results Are Not the Headline
@@ -212,8 +212,10 @@ uv run --project services/collector streamlit run scripts/dashboard.py
   - `OFFLINE REPLAY`: Clearly labelled with a persistent red banner (`🔴 OFFLINE REPLAY — RECORDED DATA, NOT LIVE`). Replays saved recordings or the bundled test fixture from disk with **zero network access** and no API key.
 - **Graceful Offline Map Degradation:**
   - The Houston Ship Channel radar map degrades gracefully with no internet: if tile servers are unreachable, it renders on a clean dark nautical coordinate plane with full axis grids, boundary polygons (entrance, corridor, destination berth box), waypoints, and vessel position markers still accurately plotted.
-- **Protocol v2.1 Honest Live ETA:**
-  - Uses the **Distance-Bucket Median Baseline** (the verified best MAE of 2.708 h overall):
+- **Protocol v2.1 Live Dual ETA:**
+  - Displays **BOTH** the **Distance-Bucket Median ETA** and the **Kinematic ETA ($d / \text{SOG}$)**, each labelled, with the operational note: *"Bucket median has lower average error because vessel holds dominate; kinematic is shown for comparison."*
+  - Point estimate baselines are statistically indistinguishable (Segment median 2.681 h, bucket median 2.708 h, QR P50 2.725 h with heavily overlapping bootstrap CIs; no model clearly beats the simple baselines).
+  - Bucket median baseline values:
     - *Near Berth ($d \le 10$ km):* 1.010 h (~60.6 min)
     - *Mid-Channel ($10 < d \le 25$ km):* 1.759 h (~105.5 min)
     - *Outer Channel ($25 < d \le 50$ km):* 2.591 h (~155.5 min)

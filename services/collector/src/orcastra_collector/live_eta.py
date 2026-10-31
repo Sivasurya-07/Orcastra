@@ -1,9 +1,12 @@
 """
 ORCASTRA Live ETA Engine & Prediction Logger.
 
-Implements Protocol v2.1 Distance-Bucket Median Baseline:
+Implements Protocol v2.1 Distance-Bucket Median Baseline & Kinematic Comparator:
   - Centerline waypoints & along-channel distance calculation
-  - Honest distance-to-berth bucket baseline medians (1.010, 1.759, 2.591, 3.539 h)
+  - Distance-to-berth bucket baseline medians (1.010, 1.759, 2.591, 3.539 h)
+  - Dual ETA: Bucket median ETA alongside kinematic ETA (distance / SOG)
+  - Note: Segment median is 2.681 h, bucket median 2.708 h, QR P50 2.725 h;
+    bootstrap CIs overlap heavily, showing they are statistically indistinguishable.
   - Cohort A live eligibility rule (D017): untyped vessels treated as unknown, not non-commercial
   - Stale (> 5 min) and invalid coordinate handling: ETA "unavailable"
   - Immutable prediction log & completed arrival tracking in SQLite
@@ -58,6 +61,10 @@ DISTANCE_BUCKETS = [
 
 METHOD_NAME = "Distance-Bucket Median Baseline"
 P95_INTERVAL_NOTE = "P95 uncertainty interval is ~40 h wide"
+ETA_COMPARISON_NOTE = (
+    "Bucket median has lower average error because vessel holds dominate; "
+    "kinematic is shown for comparison."
+)
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -122,6 +129,12 @@ class VesselLiveEta:
     is_stale: bool
     data_age_seconds: float
     reason: str
+    kinematic_duration_h: Optional[float] = None
+    kinematic_eta_utc: Optional[str] = None
+    eta_comparison_note: str = (
+        "Bucket median has lower average error because vessel holds dominate; "
+        "kinematic is shown for comparison."
+    )
 
 
 def compute_live_eta(
@@ -160,16 +173,19 @@ def compute_live_eta(
             mmsi=mmsi, name=name, latitude=None, longitude=None, sog=sog, cog=cog,
             distance_to_berth_km=None, bucket_name=None, method=METHOD_NAME,
             predicted_duration_h=None, predicted_eta_utc=None,
+            kinematic_duration_h=None, kinematic_eta_utc=None,
             status="invalid", is_eligible=False, is_stale=is_stale,
             data_age_seconds=data_age_s, reason="Invalid or missing coordinates",
         )
 
     # 3. Staleness: ETA is unavailable
     if is_stale:
+        d_val = round(channel_distance_to_berth(lat, lon), 1) if in_box(lat, lon, CORRIDOR) else None
         return VesselLiveEta(
             mmsi=mmsi, name=name, latitude=lat, longitude=lon, sog=sog, cog=cog,
-            distance_to_berth_km=None, bucket_name=None, method=METHOD_NAME,
+            distance_to_berth_km=d_val, bucket_name=None, method=METHOD_NAME,
             predicted_duration_h=None, predicted_eta_utc=None,
+            kinematic_duration_h=None, kinematic_eta_utc=None,
             status="stale", is_eligible=False, is_stale=True,
             data_age_seconds=data_age_s, reason=f"Position stale ({data_age_s:.0f}s > {stale_threshold_seconds:.0f}s)",
         )
@@ -177,10 +193,12 @@ def compute_live_eta(
     # 4. Non-commercial exclusion (D017)
     # Untyped vessels (None or 0) are treated as UNKNOWN, NOT non-commercial!
     if vtype is not None and vtype in KNOWN_NON_COMMERCIAL_TYPES:
+        d_val = round(channel_distance_to_berth(lat, lon), 1) if in_box(lat, lon, CORRIDOR) else None
         return VesselLiveEta(
             mmsi=mmsi, name=name, latitude=lat, longitude=lon, sog=sog, cog=cog,
-            distance_to_berth_km=None, bucket_name=None, method=METHOD_NAME,
+            distance_to_berth_km=d_val, bucket_name=None, method=METHOD_NAME,
             predicted_duration_h=None, predicted_eta_utc=None,
+            kinematic_duration_h=None, kinematic_eta_utc=None,
             status="non_commercial", is_eligible=False, is_stale=False,
             data_age_seconds=data_age_s, reason=f"Known non-commercial vessel type {vtype}",
         )
@@ -193,17 +211,20 @@ def compute_live_eta(
             mmsi=mmsi, name=name, latitude=lat, longitude=lon, sog=sog, cog=cog,
             distance_to_berth_km=None, bucket_name=None, method=METHOD_NAME,
             predicted_duration_h=None, predicted_eta_utc=None,
+            kinematic_duration_h=None, kinematic_eta_utc=None,
             status="out_of_corridor", is_eligible=False, is_stale=False,
             data_age_seconds=data_age_s, reason="Outside channel corridor",
         )
 
     # 6. Underway speed check (SOG >= 3.0 kn)
     safe_s = 0.0 if (sog is None or abs(sog - 102.3) < 0.01) else float(sog)
+    d_rem = channel_distance_to_berth(lat, lon)
     if safe_s < 3.0:
         return VesselLiveEta(
             mmsi=mmsi, name=name, latitude=lat, longitude=lon, sog=safe_s, cog=cog,
-            distance_to_berth_km=None, bucket_name=None, method=METHOD_NAME,
+            distance_to_berth_km=round(d_rem, 1), bucket_name=None, method=METHOD_NAME,
             predicted_duration_h=None, predicted_eta_utc=None,
+            kinematic_duration_h=None, kinematic_eta_utc=None,
             status="stationary", is_eligible=False, is_stale=False,
             data_age_seconds=data_age_s, reason="Stationary / speed < 3.0 kn",
         )
@@ -212,14 +233,14 @@ def compute_live_eta(
     if not is_inbound_heading(cog, in_entrance=in_entrance):
         return VesselLiveEta(
             mmsi=mmsi, name=name, latitude=lat, longitude=lon, sog=safe_s, cog=cog,
-            distance_to_berth_km=None, bucket_name=None, method=METHOD_NAME,
+            distance_to_berth_km=round(d_rem, 1), bucket_name=None, method=METHOD_NAME,
             predicted_duration_h=None, predicted_eta_utc=None,
+            kinematic_duration_h=None, kinematic_eta_utc=None,
             status="not_inbound", is_eligible=False, is_stale=False,
             data_age_seconds=data_age_s, reason="Heading not inbound towards port",
         )
 
     # 8. Compute along-channel distance and bucket median
-    d_rem = channel_distance_to_berth(lat, lon)
     selected_bucket = None
     pred_h = 2.0
     for bname, d_lo, d_hi, median_val in DISTANCE_BUCKETS:
@@ -235,6 +256,16 @@ def compute_live_eta(
     eta_time = now + timedelta(hours=pred_h)
     eta_str = eta_time.strftime("%H:%M UTC (%Y-%m-%d)")
 
+    # Compute Kinematic ETA: duration = distance_km / (sog_kn * 1.852)
+    kin_duration_h: Optional[float] = None
+    kin_eta_str: Optional[str] = None
+    if safe_s >= 1.0:
+        kin_duration_h = round(d_rem / (safe_s * 1.852), 3)
+        kin_time = now + timedelta(hours=kin_duration_h)
+        kin_eta_str = kin_time.strftime("%H:%M UTC (%Y-%m-%d)")
+    else:
+        kin_eta_str = "Unavailable (SOG < 1.0 kn)"
+
     return VesselLiveEta(
         mmsi=mmsi,
         name=name,
@@ -247,6 +278,8 @@ def compute_live_eta(
         method=METHOD_NAME,
         predicted_duration_h=round(pred_h, 3),
         predicted_eta_utc=eta_str,
+        kinematic_duration_h=kin_duration_h,
+        kinematic_eta_utc=kin_eta_str,
         status="active",
         is_eligible=True,
         is_stale=False,

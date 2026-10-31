@@ -93,6 +93,10 @@ class CollectorStateWriter:
 
         existing = self._vessels.get(event.mmsi, {})
         vessel_name = name or existing.get("name") or f"MMSI_{event.mmsi}"
+        history = list(existing.get("speed_history", []))
+        if event.sog is not None and abs(event.sog - 102.3) > 0.01:
+            history.append({"time": obs_utc, "sog": round(float(event.sog), 1)})
+            history = history[-10:]
 
         self._vessels[event.mmsi] = {
             "mmsi": event.mmsi,
@@ -108,6 +112,7 @@ class CollectorStateWriter:
             "is_in_bbox": event.is_in_bbox,
             "last_seen_utc": now_utc,
             "observation_time_utc": obs_utc,
+            "speed_history": history,
         }
 
     def flush(self, force: bool = False) -> None:
