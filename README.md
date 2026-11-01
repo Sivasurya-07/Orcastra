@@ -230,7 +230,7 @@ uv run --project services/collector streamlit run scripts/dashboard.py
   - When tracked vessels reach the berth box ($SOG < 1.5$ kn), actual arrival duration and absolute error are computed. The live scoreboard reports `"collecting (n = X)"` until $n \ge 30$, covering UTC dates and operational hours.
 ### Hosted Demo (Streamlit Community Cloud)
 
-A hosted, zero-setup interactive demo can be deployed directly to [Streamlit Community Cloud](https://share.streamlit.io).
+A hosted, zero-setup interactive demo can be deployed directly to [Streamlit Community Cloud](https://share.streamlit.io) | [Live mode (recorded screen capture)](https://youtu.be/placeholder).
 
 **Deployment Configuration:**
 - **Repository:** `Sivasurya-07/Orcastra`

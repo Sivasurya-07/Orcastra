@@ -81,7 +81,7 @@ BENCHMARK_RESULTS_V2 = (
 )
 
 st.set_page_config(
-    page_title="ORCASTRA — Live Maritime ETA & AIS Corridor",
+    page_title="ORCASTRA: Recorded Replay Demo" if DEPLOY_MODE else "ORCASTRA — Live Maritime ETA & AIS Corridor",
     page_icon="🚢",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -779,7 +779,10 @@ def _render_live_fragment():
 # ── Main Dashboard Application ──
 
 def main():
-    st.title("ORCASTRA — Live Maritime Corridor & Short-Horizon ETA")
+    if DEPLOY_MODE:
+        st.title("ORCASTRA: Recorded Replay Demo")
+    else:
+        st.title("ORCASTRA — Live Maritime Corridor & Short-Horizon ETA")
     st.caption("Port of Houston Ship Channel | Baseline: Distance-Bucket Median & Kinematic Comparator | Real Data Only")
 
     # If in Deploy Mode, show prominent banner at top of main view
