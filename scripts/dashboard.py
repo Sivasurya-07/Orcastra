@@ -50,8 +50,15 @@ from orcastra_collector.live_eta import (
 )
 
 # ── Paths & Constants ──
-DATA_ROOT = Path(os.environ.get("ORCASTRA_DATA_ROOT", r"D:\ORCASTRA_DATA"))
+if "ORCASTRA_DATA_ROOT" in os.environ:
+    DATA_ROOT = Path(os.environ["ORCASTRA_DATA_ROOT"])
+elif sys.platform.startswith("win"):
+    DATA_ROOT = Path(r"D:\ORCASTRA_DATA")
+else:
+    DATA_ROOT = Path("/data/orcastra_data")
+
 DEMO_DATA_DIR = REPO_ROOT / "data" / "demo"
+DEMO_SESSION_PARQUET = DEMO_DATA_DIR / "recorded_session_20261008.parquet"
 FIXTURE_SESSION = REPO_ROOT / "tests" / "fixtures" / "sample_session"
 
 # Deploy mode: auto-detected if DATA_ROOT does not exist, or if DEPLOY_MODE env var is set
@@ -452,22 +459,29 @@ def render_selection_bias_chart() -> go.Figure:
 # ── Offline Replay Data Loader ──
 
 def load_offline_replay_events(session_path: Path) -> pd.DataFrame:
-    """Load and format events from Parquet recording session."""
-    events_dir = session_path / "events"
-    if not events_dir.exists():
-        return pd.DataFrame()
-
-    parts = sorted(events_dir.glob("part_*.parquet"))
-    if not parts:
-        return pd.DataFrame()
-
+    """Load and format events from Parquet recording session (file or directory)."""
     import polars as pl
-    dfs = [pl.read_parquet(p) for p in parts]
-    df = pl.concat(dfs, how="diagonal")
+
+    if session_path.is_file() and session_path.suffix == ".parquet":
+        df = pl.read_parquet(session_path)
+    else:
+        events_dir = session_path / "events" if (session_path / "events").exists() else session_path
+        if not events_dir.exists():
+            return pd.DataFrame()
+
+        parts = sorted(events_dir.glob("*.parquet"))
+        if not parts:
+            return pd.DataFrame()
+
+        dfs = [pl.read_parquet(p) for p in parts]
+        df = pl.concat(dfs, how="diagonal")
+
     if "is_duplicate" in df.columns:
         df = df.filter(pl.col("is_duplicate") == False)
 
-    time_col = "aisstream_received_time" if "aisstream_received_time" in df.columns else "observation_time"
+    time_col = "aisstream_received_time" if "aisstream_received_time" in df.columns else (
+        "receipt_time" if "receipt_time" in df.columns else "observation_time"
+    )
     df = df.sort(time_col)
     return df.to_pandas()
 
@@ -559,7 +573,22 @@ def render_vessel_detail_panel(mmsi: int, vessels_state: dict[str, Any], now_utc
 
 def _display_vessel_operations(vessels_state: dict[str, Any], is_live: bool):
     """Processes vessel states, computes dual ETAs, and renders map, selection, and table."""
-    now_utc = datetime.now(timezone.utc)
+    if is_live or not vessels_state:
+        now_utc = datetime.now(timezone.utc)
+    else:
+        # For offline replay, anchor now_utc to the latest observation time in the replay dataset
+        latest_ts = None
+        for v in vessels_state.values():
+            ls = v.get("last_seen_utc")
+            if ls:
+                try:
+                    ts = datetime.fromisoformat(str(ls).replace("Z", "+00:00"))
+                    if latest_ts is None or ts > latest_ts:
+                        latest_ts = ts
+                except Exception:
+                    pass
+        now_utc = latest_ts or datetime.now(timezone.utc)
+
     table_rows = []
     map_rows = []
 
@@ -776,20 +805,23 @@ def main():
 
         # Session selector
         session_options = {}
-        if FIXTURE_SESSION.exists():
-            session_options["Bundled Sample Fixture (tests/fixtures)"] = FIXTURE_SESSION
+        if DEMO_SESSION_PARQUET.exists():
+            session_options["Bundled 75-Minute Session (Houston Channel, Oct 8 2026)"] = DEMO_SESSION_PARQUET
 
         recordings_dir = DATA_ROOT / "recordings"
         if recordings_dir.exists():
             for d in sorted(recordings_dir.iterdir()):
                 if d.is_dir() and (d / "events").exists():
-                    session_options[d.name] = d
+                    session_options[f"Local Recording: {d.name}"] = d
 
         demo_recordings = REPO_ROOT / "data" / "recordings"
         if demo_recordings.exists():
             for d in sorted(demo_recordings.iterdir()):
                 if d.is_dir() and (d / "events").exists() and d.name not in session_options:
                     session_options[f"Demo: {d.name}"] = d
+
+        if FIXTURE_SESSION.exists():
+            session_options["Sample Fixture (tests/fixtures)"] = FIXTURE_SESSION
 
         if not session_options:
             st.sidebar.warning("No recording sessions available.")
@@ -849,7 +881,9 @@ def main():
             st.warning("No Parquet event data found in selected session directory.")
             return
 
-        time_col = "aisstream_received_time" if "aisstream_received_time" in df_replay.columns else "observation_time"
+        time_col = "aisstream_received_time" if "aisstream_received_time" in df_replay.columns else (
+            "receipt_time" if "receipt_time" in df_replay.columns else "observation_time"
+        )
         st.caption(f"Loaded **{len(df_replay)}** events from `{selected_session.name}` ({df_replay[time_col].min()} to {df_replay[time_col].max()})")
 
         unique_mmsis = df_replay["mmsi"].unique()

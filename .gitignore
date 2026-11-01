@@ -25,6 +25,8 @@ Thumbs.db
 *.parquet
 *.tmp.parquet
 !tests/fixtures/**/*.parquet
+!data/demo/*.parquet
+!data/demo/**/*.parquet
 data/recordings/
 
 # Generated artifacts — do not track

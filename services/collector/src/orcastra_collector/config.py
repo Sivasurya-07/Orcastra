@@ -4,11 +4,19 @@ ORCASTRA Collector — Configuration.
 All paths, thresholds, and tuning constants in one place.
 """
 
+import os
+import sys
 from pathlib import Path
 from dataclasses import dataclass, field
 
-# ── Data root (outside repo, on D:) ──
-DATA_ROOT = Path(r"D:\ORCASTRA_DATA")
+# ── Data root (outside repo, on D: on Windows, or environment variable) ──
+_data_root_env = os.environ.get("ORCASTRA_DATA_ROOT")
+if _data_root_env:
+    DATA_ROOT = Path(_data_root_env)
+elif sys.platform.startswith("win"):
+    DATA_ROOT = Path(r"D:\ORCASTRA_DATA")
+else:
+    DATA_ROOT = Path("/data/orcastra_data")
 
 # ── Houston Ship Channel bounding box ──
 # Matches NOAA archive sample exactly.

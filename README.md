@@ -240,7 +240,8 @@ A hosted, zero-setup interactive demo can be deployed directly to [Streamlit Com
 - **Environment variables (optional):** `DEPLOY_MODE=1` (automatically active if `D:\ORCASTRA_DATA` is absent)
 
 **Hosted Demo Behavior (`DEPLOY_MODE`):**
-- **Offline Replay Only:** Loads and replays recorded AIS events from the bundled sample fixture (`tests/fixtures/sample_session`) or repository session recordings.
+- **Offline Replay with Real AIS Data:** Replays public AIS recording events from the bundled 75-minute session (`data/demo/recorded_session_20261008.parquet`, 4,057 events, 186 KB) instead of synthetic or minimal fixtures.
+- **Public AIS Recording Provenance:** Captured from public broadcast AIS data on October 8, 2026 across the Houston Ship Channel bounding box (29.0°N–29.9°N, 95.3°W–94.4°W) over a 75-minute observation window (16:02–17:17 UTC).
 - **Safety & Isolation:** Live collection controls (Start/Stop Live) and live streaming mode options are completely hidden. Never reads `.env` or opens WebSocket connections.
 - **Protocol v2.1 Benchmarks:** Benchmark comparison charts and Protocol v2.1 baseline results load from bundled JSON artifacts in `data/demo/` with no local NOAA dataset required.
 - **Prominent Banner:** Displays `"Hosted demo: recorded data only. Run locally for live mode."`

@@ -93,14 +93,24 @@ class Collector:
         }
 
     def _load_api_key(self) -> str:
-        env_path = Path(r"D:\ORCASTRA\repo\.env")
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("AISSTREAM_API_KEY="):
-                    k = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    if k and k != "your_api_key_here":
-                        return k
-        raise ValueError("No valid AISSTREAM_API_KEY found in .env")
+        # 1. Environment variable
+        env_key = os.environ.get("AISSTREAM_API_KEY")
+        if env_key and env_key != "your_api_key_here":
+            return env_key
+
+        # 2. Repo .env (dynamic relative path or Windows path)
+        candidates = [
+            Path(__file__).resolve().parent.parent.parent.parent / ".env",
+            Path(r"D:\ORCASTRA\repo\.env") if sys.platform.startswith("win") else None,
+        ]
+        for candidate in candidates:
+            if candidate and candidate.exists():
+                for line in candidate.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("AISSTREAM_API_KEY="):
+                        k = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if k and k != "your_api_key_here":
+                            return k
+        raise ValueError("No valid AISSTREAM_API_KEY found in environment or .env")
 
     async def run(self) -> dict:
         """Main collection loop. Returns session summary."""
