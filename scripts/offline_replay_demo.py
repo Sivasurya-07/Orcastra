@@ -241,6 +241,8 @@ def main():
     parser = argparse.ArgumentParser(description="ORCASTRA Offline Replay Demo")
     parser.add_argument("--session", type=str, default=str(DEFAULT_SESSION),
                         help="Path to a saved recording session directory")
+    parser.add_argument("--retrain-from-noaa", action="store_true",
+                        help="Optionally train model from NOAA historical dataset (if available)")
     args = parser.parse_args()
 
     print(BANNER)
@@ -257,24 +259,41 @@ def main():
         print(f"[ERROR] No Parquet parts found in {events_dir}")
         return 1
 
-    # Check model prerequisites — fall back to kinematic d/SOG if NOAA data absent
-    has_noaa = NOAA_DIR.exists() and bool(list(NOAA_DIR.glob("houston_2024-*.parquet")))
-    if not has_noaa:
-        print("[MODEL] NOAA historical data not found. Using kinematic d/SOG fallback only.")
-        print("[MODEL] To get full model predictions, download NOAA data first:")
-        print("[MODEL]   python scripts/pull_noaa_3mo.py")
+    # Check for Protocol v2.1 bucket medians from JSON
+    repo_root = Path(__file__).resolve().parent.parent
+    demo_json = repo_root / "data" / "demo" / "tier1_v2_1_short_horizon_results.json"
+    hist_json = Path(r"D:\ORCASTRA_DATA\historical\results\tier1_v2_1_short_horizon_results.json")
+    results_json = hist_json if hist_json.exists() else (demo_json if demo_json.exists() else None)
 
-    # Train the deterministic model (or set up kinematic fallback)
-    models, conformal_shifts, tr_medians = None, None, {}
-    if has_noaa:
+    bucket_medians = None
+    if results_json:
         try:
-            from sklearn.ensemble import HistGradientBoostingRegressor
-            models, conformal_shifts, tr_medians = train_model_from_noaa()
-        except ImportError:
-            print("[MODEL] scikit-learn not installed. Using kinematic d/SOG fallback.")
+            import json
+            with open(results_json, "r", encoding="utf-8") as f:
+                r_data = json.load(f)
+            bucket_medians = r_data.get("bucket_train_medians", {})
+            print(f"[MODEL] Using Protocol v2.1 distance-bucket medians from {results_json.name} (NOAA raw dataset not needed).")
+        except Exception:
+            pass
+
+    # Optional retraining only if explicitly requested
+    models, conformal_shifts, tr_medians = None, None, {}
+    if args.retrain_from_noaa:
+        has_noaa = NOAA_DIR.exists() and bool(list(NOAA_DIR.glob("houston_2024-*.parquet")))
+        if has_noaa:
+            try:
+                from sklearn.ensemble import HistGradientBoostingRegressor
+                models, conformal_shifts, tr_medians = train_model_from_noaa()
+            except ImportError:
+                print("[MODEL] scikit-learn not installed.")
+        else:
+            print("[MODEL] NOAA historical data directory not found for retraining.")
 
     use_model = models is not None
     snap_features = ["lat", "lon", "rem_km", "sog", "cog", "length", "draft"]
+
+    if not use_model and not bucket_medians:
+        print("[MODEL] Using kinematic d/SOG fallback.")
 
     # Load and replay the recorded session
     print(f"\n[REPLAY] Loading session: {session_dir.name}")
@@ -321,6 +340,19 @@ def main():
             p50 = max(raw_p50 + conformal_shifts[0.50], 0.05)
             p80 = max(raw_p80 + conformal_shifts[0.80], p50)
             p95 = max(raw_p95 + conformal_shifts[0.95], p80)
+        elif bucket_medians:
+            # Use Protocol v2.1 frozen distance-bucket median baseline
+            if rem_km <= 10.0:
+                b_med = bucket_medians.get("Near Berth (d <= 10 km)", 1.00986)
+            elif rem_km <= 25.0:
+                b_med = bucket_medians.get("Mid-Channel (10-25 km)", 1.75861)
+            elif rem_km <= 50.0:
+                b_med = bucket_medians.get("Outer Channel (25-50 km)", 2.59083)
+            else:
+                b_med = bucket_medians.get("Beyond Entrance (d > 50 km)", 3.53889)
+            p50 = b_med
+            p80 = b_med + 0.041
+            p95 = b_med + 33.522  # ~34-40h wide interval accounting for anchorage
         else:
             # Kinematic fallback: d_rem / SOG
             km_to_nm = 0.539957

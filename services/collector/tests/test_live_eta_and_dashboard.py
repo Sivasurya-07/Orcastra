@@ -404,6 +404,33 @@ def test_dual_eta_and_comparison_note():
     assert_true(eta_stat.kinematic_duration_h is None, "Stationary kinematic duration None")
 
 
+def test_deploy_mode_detection_and_fallback():
+    print("\n=== Test: Deploy Mode Detection & Demo JSON Fallback ===")
+    from scripts.dashboard import (
+        BENCHMARK_RESULTS_V2_1,
+        BENCHMARK_RESULTS_V2,
+        render_benchmark_chart,
+        render_selection_bias_chart,
+    )
+
+    # 1. Benchmark result files must exist (either on D: or via data/demo fallback)
+    assert_true(BENCHMARK_RESULTS_V2_1.exists(), f"Protocol v2.1 results exist ({BENCHMARK_RESULTS_V2_1})")
+    assert_true(BENCHMARK_RESULTS_V2.exists(), f"Protocol v2 results exist ({BENCHMARK_RESULTS_V2})")
+
+    # 2. Both files must be < 1 MB
+    size_v2_1 = BENCHMARK_RESULTS_V2_1.stat().st_size
+    size_v2 = BENCHMARK_RESULTS_V2.stat().st_size
+    assert_true(size_v2_1 < 1024 * 1024, f"v2.1 results size ({size_v2_1} B) < 1 MB")
+    assert_true(size_v2 < 1024 * 1024, f"v2 results size ({size_v2} B) < 1 MB")
+
+    # 3. Chart rendering functions must execute cleanly and return Plotly figures
+    fig_bench = render_benchmark_chart()
+    assert_true(fig_bench is not None and hasattr(fig_bench, "to_dict"), "Benchmark chart renders cleanly")
+
+    fig_bias = render_selection_bias_chart()
+    assert_true(fig_bias is not None and hasattr(fig_bias, "to_dict"), "Selection bias chart renders cleanly")
+
+
 def main():
     print("=" * 60)
     print("ORCASTRA Phase 2 Test Suite (Live ETA, Lock, State, Dashboard)")
@@ -418,6 +445,7 @@ def main():
     test_prediction_logging_and_arrival_scoring()
     test_offline_replay_without_network()
     test_dashboard_does_not_auto_start_collector()
+    test_deploy_mode_detection_and_fallback()
 
     print("\n" + "=" * 60)
     print(f"RESULTS: {PASS_COUNT} passed, {FAIL_COUNT} failed")

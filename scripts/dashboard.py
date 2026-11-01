@@ -50,13 +50,28 @@ from orcastra_collector.live_eta import (
 )
 
 # ── Paths & Constants ──
-DATA_ROOT = Path(r"D:\ORCASTRA_DATA")
+DATA_ROOT = Path(os.environ.get("ORCASTRA_DATA_ROOT", r"D:\ORCASTRA_DATA"))
+DEMO_DATA_DIR = REPO_ROOT / "data" / "demo"
 FIXTURE_SESSION = REPO_ROOT / "tests" / "fixtures" / "sample_session"
+
+# Deploy mode: auto-detected if DATA_ROOT does not exist, or if DEPLOY_MODE env var is set
+DEPLOY_MODE = (os.environ.get("DEPLOY_MODE") == "1") or (not DATA_ROOT.exists())
+
 DEFAULT_STATE_PATH = DATA_ROOT / "latest_state.json"
 DEFAULT_LOCK_PATH = DATA_ROOT / "collector.lock"
 DEFAULT_PRED_LOG_PATH = DATA_ROOT / "prediction_log.sqlite"
-BENCHMARK_RESULTS_V2_1 = DATA_ROOT / "historical" / "results" / "tier1_v2_1_short_horizon_results.json"
-BENCHMARK_RESULTS_V2 = DATA_ROOT / "historical" / "results" / "tier1_v2_short_horizon_results.json"
+
+# Small result JSONs: prefer DATA_ROOT if present, otherwise fall back to repo data/demo/
+BENCHMARK_RESULTS_V2_1 = (
+    (DATA_ROOT / "historical" / "results" / "tier1_v2_1_short_horizon_results.json")
+    if (DATA_ROOT / "historical" / "results" / "tier1_v2_1_short_horizon_results.json").exists()
+    else (DEMO_DATA_DIR / "tier1_v2_1_short_horizon_results.json")
+)
+BENCHMARK_RESULTS_V2 = (
+    (DATA_ROOT / "historical" / "results" / "tier1_v2_short_horizon_results.json")
+    if (DATA_ROOT / "historical" / "results" / "tier1_v2_short_horizon_results.json").exists()
+    else (DEMO_DATA_DIR / "tier1_v2_short_horizon_results.json")
+)
 
 st.set_page_config(
     page_title="ORCASTRA — Live Maritime ETA & AIS Corridor",
@@ -323,6 +338,22 @@ def render_benchmark_chart() -> go.Figure:
         "Calibrated QR P50 (HistGradientBoosting)",
     ]
     maes = [3.113, 2.681, 2.708, 2.725]
+
+    if BENCHMARK_RESULTS_V2_1.exists():
+        try:
+            with open(BENCHMARK_RESULTS_V2_1, "r", encoding="utf-8") as f:
+                res = json.load(f)
+            b_res = res.get("bucket_results", {}).get("Overall", {})
+            if b_res:
+                maes = [
+                    round(b_res.get("kinematic_mae", 3.113), 3),
+                    round(b_res.get("segment_median_mae", 2.681), 3),
+                    round(b_res.get("bucket_median_mae", 2.708), 3),
+                    round(b_res.get("qr_p50_mae", 2.725), 3),
+                ]
+        except Exception:
+            pass
+
     colors = ["#64748b", "#0284c7", "#16a34a", "#9333ea"]
 
     fig = go.Figure(go.Bar(
@@ -368,6 +399,19 @@ def render_selection_bias_chart() -> go.Figure:
         "Protocol v2.1 (Unconditioned)<br>Observable Distance Buckets",
     ]
     maes = [0.239, 2.708]
+
+    if BENCHMARK_RESULTS_V2.exists() and BENCHMARK_RESULTS_V2_1.exists():
+        try:
+            with open(BENCHMARK_RESULTS_V2, "r", encoding="utf-8") as f:
+                v2_data = json.load(f)
+            with open(BENCHMARK_RESULTS_V2_1, "r", encoding="utf-8") as f:
+                v2_1_data = json.load(f)
+            v2_mae = v2_data.get("bucket_results", {}).get("Overall (<=3h)", {}).get("qr_p50_mae", 0.239)
+            v2_1_mae = v2_1_data.get("bucket_results", {}).get("Overall", {}).get("bucket_median_mae", 2.708)
+            maes = [round(v2_mae, 3), round(v2_1_mae, 3)]
+        except Exception:
+            pass
+
     colors = ["#dc2626", "#16a34a"]
 
     fig = go.Figure(go.Bar(
@@ -709,33 +753,54 @@ def main():
     st.title("ORCASTRA — Live Maritime Corridor & Short-Horizon ETA")
     st.caption("Port of Houston Ship Channel | Baseline: Distance-Bucket Median & Kinematic Comparator | Real Data Only")
 
+    # If in Deploy Mode, show prominent banner at top of main view
+    if DEPLOY_MODE:
+        st.info("ℹ️ **Hosted demo: recorded data only. Run locally for live mode.**")
+
     # Mode Selection
-    mode = st.sidebar.radio("Operating Mode", ["LIVE", "OFFLINE REPLAY"], index=0)
+    if DEPLOY_MODE:
+        mode = "OFFLINE REPLAY"
+        st.sidebar.markdown('<span class="badge-offline">HOSTED DEMO MODE</span>', unsafe_allow_html=True)
+        st.sidebar.caption("Offline Replay Only — No Live Streaming")
+    else:
+        mode = st.sidebar.radio("Operating Mode", ["LIVE", "OFFLINE REPLAY"], index=0)
 
     # ─────────────────────────────────────────────────────────────
     # SIDEBAR: Mode Controls & Collector Subprocess Manager
     # ─────────────────────────────────────────────────────────────
     st.sidebar.markdown("---")
-    collector_status = get_collector_subprocess_status()
 
     if mode == "OFFLINE REPLAY":
         st.sidebar.markdown("### 🔴 Offline Replay Settings")
         st.sidebar.info("Replaying recorded AIS data from disk. No network access. No API key used.")
 
         # Session selector
-        recordings_dir = DATA_ROOT / "recordings"
-        available_sessions = []
-        if recordings_dir.exists():
-            available_sessions = [d for d in recordings_dir.iterdir() if d.is_dir() and (d / "events").exists()]
-
-        session_options = {s.name: s for s in available_sessions}
+        session_options = {}
         if FIXTURE_SESSION.exists():
             session_options["Bundled Sample Fixture (tests/fixtures)"] = FIXTURE_SESSION
+
+        recordings_dir = DATA_ROOT / "recordings"
+        if recordings_dir.exists():
+            for d in sorted(recordings_dir.iterdir()):
+                if d.is_dir() and (d / "events").exists():
+                    session_options[d.name] = d
+
+        demo_recordings = REPO_ROOT / "data" / "recordings"
+        if demo_recordings.exists():
+            for d in sorted(demo_recordings.iterdir()):
+                if d.is_dir() and (d / "events").exists() and d.name not in session_options:
+                    session_options[f"Demo: {d.name}"] = d
+
+        if not session_options:
+            st.sidebar.warning("No recording sessions available.")
+            return
 
         selected_name = st.sidebar.selectbox("Choose Recording Session", list(session_options.keys()))
         selected_session = session_options[selected_name]
 
     else:
+        # LIVE MODE (only accessible when NOT in deploy mode)
+        collector_status = get_collector_subprocess_status()
         st.sidebar.markdown("### 🟢 Live Collector Control")
         if collector_status["running"]:
             st.sidebar.markdown(f'<span class="badge-live">COLLECTOR RUNNING (PID {collector_status["pid"]})</span>', unsafe_allow_html=True)
@@ -869,19 +934,26 @@ def main():
         st.markdown("### 🏆 Live Arrival Scoreboard")
         st.caption("Scores only vessels that were fully observed from initial corridor prediction to berth arrival.")
 
-        pred_logger = PredictionLogger(DEFAULT_PRED_LOG_PATH)
-        sb_stats = pred_logger.get_scoreboard_stats()
-
-        s1, s2, s3, s4 = st.columns(4)
-        s1.metric("Scoreboard Status", sb_stats["status"])
-        s2.metric("Observed Arrivals", sb_stats["n"])
-        s3.metric("Live MAE", f"{sb_stats['mae_h']:.3f} h" if sb_stats["mae_h"] else "Collecting...")
-        s4.metric("UTC Hours Covered", f"{sb_stats['utc_hours_covered']} h")
-
-        if sb_stats["n"] < 30:
-            st.info(f"Currently in collection phase: **{sb_stats['status']}**. A minimum of $n = 30$ fully observed arrivals is required before computing formal confidence intervals.")
+        if DEPLOY_MODE or not DEFAULT_PRED_LOG_PATH.exists():
+            st.info(
+                "ℹ️ **Live Scoreboard is inactive in Hosted Demo (Offline Replay Mode).**\n\n"
+                "When running locally with the live collector active, completed arrivals are tracked "
+                "in an immutable SQLite prediction log and scored upon reaching the berth box."
+            )
         else:
-            st.success(f"Verified live cohort size: $n = {sb_stats['n']}$. Bootstrap 95% CI: `{sb_stats['ci_95']}`")
+            pred_logger = PredictionLogger(DEFAULT_PRED_LOG_PATH)
+            sb_stats = pred_logger.get_scoreboard_stats()
+
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Scoreboard Status", sb_stats["status"])
+            s2.metric("Observed Arrivals", sb_stats["n"])
+            s3.metric("Live MAE", f"{sb_stats['mae_h']:.3f} h" if sb_stats["mae_h"] else "Collecting...")
+            s4.metric("UTC Hours Covered", f"{sb_stats['utc_hours_covered']} h")
+
+            if sb_stats["n"] < 30:
+                st.info(f"Currently in collection phase: **{sb_stats['status']}**. A minimum of $n = 30$ fully observed arrivals is required before computing formal confidence intervals.")
+            else:
+                st.success(f"Verified live cohort size: $n = {sb_stats['n']}$. Bootstrap 95% CI: `{sb_stats['ci_95']}`")
 
 
 if __name__ == "__main__":

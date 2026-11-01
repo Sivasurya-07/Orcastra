@@ -1,0 +1,201 @@
+{
+  "protocol": "docs/EVAL_PROTOCOL_V2_1.md",
+  "protocol_version": "2.1",
+  "timestamp": "2026-10-26T16:51:25.907331+00:00",
+  "unconditioned": true,
+  "bucket_type": "distance_to_berth_km",
+  "conformal_shifts": {
+    "P50": -0.01598292614429725,
+    "P80": 0.04051032689354014,
+    "P95": 33.52218637536789
+  },
+  "bucket_train_medians": {
+    "Near Berth (d <= 10 km)": 1.009861111111111,
+    "Mid-Channel (10-25 km)": 1.7586111111111111,
+    "Outer Channel (25-50 km)": 2.5908333333333333,
+    "Beyond Entrance (d > 50 km)": 3.5388888888888888
+  },
+  "total_snapshots": 15768,
+  "total_censored": 0,
+  "total_anchored": 1881,
+  "share_gt3h_overall_pct": 20.17376966007103,
+  "bucket_results": {
+    "Near Berth (d <= 10 km)": {
+      "n_snapshots": 1544,
+      "n_unique_vessels": 263,
+      "n_unseen_vessels": 167,
+      "share_y_rem_gt_3h_pct": 3.2383419689119166,
+      "share_anchored_midway_pct": 12.370466321243523,
+      "mae_kinematic_d_sog": 2.148388136976106,
+      "mae_hist_segment_median": 1.6593839953943579,
+      "mae_bucket_median_baseline": 1.6593839953943579,
+      "mae_p50_calibrated": 1.7681456739128543,
+      "mae_p50_bootstrap_95ci": [
+        0.9192254997492919,
+        2.754535591923183
+      ],
+      "ci_width": 1.8353100921738912,
+      "medae_p50": 0.14527897072712126,
+      "pinball_p50": 0.8840728369564271,
+      "pinball_p80": 1.5593111404924311,
+      "pinball_p95": 2.0749595109271826,
+      "coverage_p50_pct": 48.76943005181347,
+      "coverage_p80_pct": 86.85233160621762,
+      "coverage_p95_pct": 98.38082901554405,
+      "coverage_p95_bootstrap_95ci": [
+        96.66851075542468,
+        99.61661341853035
+      ],
+      "interval_width_p80_minus_p50_h": 2.487325595326355,
+      "interval_width_p95_minus_p50_h": 38.85587676606647,
+      "mean_p50_prediction_h": 1.3498825128237526,
+      "unseen_vessels_mae_p50": 2.470584869100982,
+      "unseen_vessels_coverage_p95": 97.55859375
+    },
+    "Mid-Channel (10-25 km)": {
+      "n_snapshots": 904,
+      "n_unique_vessels": 261,
+      "n_unseen_vessels": 167,
+      "share_y_rem_gt_3h_pct": 4.20353982300885,
+      "share_anchored_midway_pct": 12.389380530973451,
+      "mae_kinematic_d_sog": 2.681276796772075,
+      "mae_hist_segment_median": 2.2707638888888892,
+      "mae_bucket_median_baseline": 2.2707638888888892,
+      "mae_p50_calibrated": 2.4538032174316124,
+      "mae_p50_bootstrap_95ci": [
+        1.5295624822362697,
+        3.446246599651961
+      ],
+      "ci_width": 1.9166841174156912,
+      "medae_p50": 0.22509582619412594,
+      "pinball_p50": 1.2269016087158062,
+      "pinball_p80": 2.086224092632817,
+      "pinball_p95": 2.23016021906059,
+      "coverage_p50_pct": 52.54424778761062,
+      "coverage_p80_pct": 85.39823008849558,
+      "coverage_p95_pct": 97.89823008849558,
+      "coverage_p95_bootstrap_95ci": [
+        96.51287148266773,
+        99.20004561003421
+      ],
+      "interval_width_p80_minus_p50_h": 3.781096395347876,
+      "interval_width_p95_minus_p50_h": 39.833287816359956,
+      "mean_p50_prediction_h": 2.0916668440216997,
+      "unseen_vessels_mae_p50": 3.2843212282227325,
+      "unseen_vessels_coverage_p95": 96.67832167832168
+    },
+    "Outer Channel (25-50 km)": {
+      "n_snapshots": 2149,
+      "n_unique_vessels": 261,
+      "n_unseen_vessels": 167,
+      "share_y_rem_gt_3h_pct": 21.126105165193113,
+      "share_anchored_midway_pct": 12.796649604467195,
+      "mae_kinematic_d_sog": 3.2746636057584926,
+      "mae_hist_segment_median": 2.8835215991934233,
+      "mae_bucket_median_baseline": 2.9481064836357995,
+      "mae_p50_calibrated": 2.946245666309397,
+      "mae_p50_bootstrap_95ci": [
+        1.8457379273979637,
+        4.1535912720388755
+      ],
+      "ci_width": 2.307853344640912,
+      "medae_p50": 0.25215932696694665,
+      "pinball_p50": 1.4731228331546986,
+      "pinball_p80": 2.4449656682228595,
+      "pinball_p95": 2.3617860466477145,
+      "coverage_p50_pct": 52.72219637040484,
+      "coverage_p80_pct": 84.03908794788273,
+      "coverage_p95_pct": 97.34760353652861,
+      "coverage_p95_bootstrap_95ci": [
+        95.50124800707628,
+        99.01319840549651
+      ],
+      "interval_width_p80_minus_p50_h": 3.8165235750553768,
+      "interval_width_p95_minus_p50_h": 41.6757096240819,
+      "mean_p50_prediction_h": 3.0144754636873174,
+      "unseen_vessels_mae_p50": 4.020835577612388,
+      "unseen_vessels_coverage_p95": 95.91397849462365
+    },
+    "Beyond Entrance (d > 50 km)": {
+      "n_snapshots": 470,
+      "n_unique_vessels": 243,
+      "n_unseen_vessels": 156,
+      "share_y_rem_gt_3h_pct": 71.91489361702128,
+      "share_anchored_midway_pct": 17.02127659574468,
+      "mae_kinematic_d_sog": 6.369941295630255,
+      "mae_hist_segment_median": 5.899446808510638,
+      "mae_bucket_median_baseline": 5.899446808510638,
+      "mae_p50_calibrated": 5.380655345411253,
+      "mae_p50_bootstrap_95ci": [
+        3.9108836090501904,
+        6.973248427988333
+      ],
+      "ci_width": 3.0623648189381423,
+      "medae_p50": 0.4156617934177804,
+      "pinball_p50": 2.6903276727056267,
+      "pinball_p80": 3.780141635431304,
+      "pinball_p95": 2.700628051815487,
+      "coverage_p50_pct": 53.61702127659574,
+      "coverage_p80_pct": 85.31914893617021,
+      "coverage_p95_pct": 98.72340425531915,
+      "coverage_p95_bootstrap_95ci": [
+        97.46273279379486,
+        99.78119356349077
+      ],
+      "interval_width_p80_minus_p50_h": 5.862016353927619,
+      "interval_width_p95_minus_p50_h": 55.918314806545034,
+      "mean_p50_prediction_h": 5.126104883093495,
+      "unseen_vessels_mae_p50": 6.731360259928024,
+      "unseen_vessels_coverage_p95": 98.33333333333333
+    },
+    "Overall": {
+      "n_snapshots": 5067,
+      "n_unique_vessels": 264,
+      "n_unseen_vessels": 167,
+      "share_y_rem_gt_3h_pct": 17.367278468521807,
+      "share_anchored_midway_pct": 12.985987763962898,
+      "mae_kinematic_d_sog": 3.1127116647906616,
+      "mae_hist_segment_median": 2.680932970418613,
+      "mae_bucket_median_baseline": 2.7083245071596167,
+      "mae_p50_calibrated": 2.725211166039433,
+      "mae_p50_bootstrap_95ci": [
+        1.7854030287611409,
+        3.7234811106347836
+      ],
+      "ci_width": 1.9380780818736427,
+      "medae_p50": 0.2112836735610737,
+      "pinball_p50": 1.3626055830197166,
+      "pinball_p80": 2.234936011510562,
+      "pinball_p95": 2.2823318968820923,
+      "coverage_p50_pct": 51.56897572528123,
+      "coverage_p80_pct": 85.2575488454707,
+      "coverage_p95_pct": 97.88829682257746,
+      "coverage_p95_bootstrap_95ci": [
+        96.44349128067196,
+        99.07633763447613
+      ],
+      "interval_width_p80_minus_p50_h": 3.594907975077631,
+      "interval_width_p95_minus_p50_h": 41.808856099077204,
+      "mean_p50_prediction_h": 2.538476908094233,
+      "unseen_vessels_mae_p50": 3.6575461431937084,
+      "unseen_vessels_coverage_p95": 96.77909450015193
+    }
+  },
+  "cohort_a1_full_trip": {
+    "total_arrivals": 899,
+    "train_arrivals": 609,
+    "test_arrivals": 290,
+    "hist_median_scalar_h": 3.8919444444444444,
+    "hist_median_mae": 6.282375478927203,
+    "bootstrap_ci": [
+      4.65510968876377,
+      8.055112897361722
+    ],
+    "ci_width": 3.400003208597952
+  },
+  "cohort_a2_full_trip": {
+    "total_arrivals": 1008,
+    "train_arrivals": 680,
+    "test_arrivals": 328
+  }
+}

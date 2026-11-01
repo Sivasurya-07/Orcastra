@@ -228,7 +228,22 @@ uv run --project services/collector streamlit run scripts/dashboard.py
 - **Immutable Prediction Logger & Live Scoreboard:**
   - Predictions are immutably logged to `D:\ORCASTRA_DATA\prediction_log.sqlite`.
   - When tracked vessels reach the berth box ($SOG < 1.5$ kn), actual arrival duration and absolute error are computed. The live scoreboard reports `"collecting (n = X)"` until $n \ge 30$, covering UTC dates and operational hours.
-  - UI explicitly notes: *Benchmark results do not establish live accuracy.*
+### Hosted Demo (Streamlit Community Cloud)
+
+A hosted, zero-setup interactive demo can be deployed directly to [Streamlit Community Cloud](https://share.streamlit.io).
+
+**Deployment Configuration:**
+- **Repository:** `Sivasurya-07/Orcastra`
+- **Branch:** `main`
+- **Main file path:** `scripts/dashboard.py`
+- **Python version:** `3.12` (specified in `.python-version` and repository dependencies in `requirements.txt`)
+- **Environment variables (optional):** `DEPLOY_MODE=1` (automatically active if `D:\ORCASTRA_DATA` is absent)
+
+**Hosted Demo Behavior (`DEPLOY_MODE`):**
+- **Offline Replay Only:** Loads and replays recorded AIS events from the bundled sample fixture (`tests/fixtures/sample_session`) or repository session recordings.
+- **Safety & Isolation:** Live collection controls (Start/Stop Live) and live streaming mode options are completely hidden. Never reads `.env` or opens WebSocket connections.
+- **Protocol v2.1 Benchmarks:** Benchmark comparison charts and Protocol v2.1 baseline results load from bundled JSON artifacts in `data/demo/` with no local NOAA dataset required.
+- **Prominent Banner:** Displays `"Hosted demo: recorded data only. Run locally for live mode."`
 
 ### Offline Replay Demo
 

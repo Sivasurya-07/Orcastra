@@ -1,0 +1,123 @@
+{
+  "protocol": "docs/EVAL_PROTOCOL_V2.md",
+  "timestamp": "2026-10-26T16:03:12.855519+00:00",
+  "conformal_shifts": {
+    "0.5": -0.020231200577484065,
+    "0.8": 0.04471736770460862,
+    "0.95": 0.09362399030770886
+  },
+  "bucket_results": {
+    "<= 1 hour": {
+      "n_snapshots": 1020,
+      "n_unique_vessels": 258,
+      "n_unseen_vessels": 167,
+      "mae_naive_kinematic": 0.4872306470744743,
+      "mae_hist_segment_median": 0.4586130174291939,
+      "mae_p50_calibrated": 0.2618071621574117,
+      "mae_p50_bootstrap_95ci": [
+        0.22748503067292458,
+        0.29730766191738267
+      ],
+      "ci_width": 0.06982263124445809,
+      "medae_p50": 0.14807167266086824,
+      "pinball_p50": 0.13090358107870584,
+      "pinball_p80": 0.09020187762883307,
+      "pinball_p95": 0.03460770471182822,
+      "coverage_p50_pct": 67.05882352941175,
+      "coverage_p80_pct": 95.09803921568627,
+      "coverage_p95_pct": 100.0,
+      "coverage_p95_bootstrap_95ci": [
+        100.0,
+        100.0
+      ],
+      "unseen_vessels_mae_p50": 0.2692008732243293,
+      "unseen_vessels_coverage_p95": 100.0
+    },
+    "1\u20132 hours": {
+      "n_snapshots": 1726,
+      "n_unique_vessels": 257,
+      "n_unseen_vessels": 166,
+      "mae_naive_kinematic": 0.7869333329703795,
+      "mae_hist_segment_median": 0.44064495622505473,
+      "mae_p50_calibrated": 0.2336714761534478,
+      "mae_p50_bootstrap_95ci": [
+        0.20621838767388348,
+        0.2613910246279545
+      ],
+      "ci_width": 0.055172636954071014,
+      "medae_p50": 0.14781481547062647,
+      "pinball_p50": 0.1168357380767239,
+      "pinball_p80": 0.07920597934230124,
+      "pinball_p95": 0.028774597824737368,
+      "coverage_p50_pct": 51.042873696407874,
+      "coverage_p80_pct": 87.02201622247972,
+      "coverage_p95_pct": 99.13093858632676,
+      "coverage_p95_bootstrap_95ci": [
+        98.12268096978175,
+        99.88345665961945
+      ],
+      "unseen_vessels_mae_p50": 0.23897498779393261,
+      "unseen_vessels_coverage_p95": 99.72727272727273
+    },
+    "2\u20133 hours": {
+      "n_snapshots": 1469,
+      "n_unique_vessels": 255,
+      "n_unseen_vessels": 165,
+      "mae_naive_kinematic": 0.9276714257971854,
+      "mae_hist_segment_median": 0.2837397889720898,
+      "mae_p50_calibrated": 0.23012464974109292,
+      "mae_p50_bootstrap_95ci": [
+        0.2067975391696783,
+        0.2557904336863492
+      ],
+      "ci_width": 0.04899289451667088,
+      "medae_p50": 0.1581366338204484,
+      "pinball_p50": 0.11506232487054646,
+      "pinball_p80": 0.07443585843762296,
+      "pinball_p95": 0.027091817231799143,
+      "coverage_p50_pct": 44.31586113002042,
+      "coverage_p80_pct": 81.41592920353983,
+      "coverage_p95_pct": 98.63852961198094,
+      "coverage_p95_bootstrap_95ci": [
+        97.19770898719953,
+        99.67253956996267
+      ],
+      "unseen_vessels_mae_p50": 0.2293724087145694,
+      "unseen_vessels_coverage_p95": 99.37694704049844
+    },
+    "Overall (<=3h)": {
+      "n_snapshots": 4215,
+      "n_unique_vessels": 259,
+      "n_unseen_vessels": 168,
+      "mae_naive_kinematic": 0.7634570622108907,
+      "mae_hist_segment_median": 0.39030894951891393,
+      "mae_p50_calibrated": 0.23924398190061122,
+      "mae_p50_bootstrap_95ci": [
+        0.21247525187143537,
+        0.2666920980674671
+      ],
+      "ci_width": 0.054216846196031704,
+      "medae_p50": 0.15096806586730827,
+      "pinball_p50": 0.11962199095030561,
+      "pinball_p80": 0.08020443928139735,
+      "pinball_p95": 0.029599690193374717,
+      "coverage_p50_pct": 52.574139976275205,
+      "coverage_p80_pct": 87.02253855278767,
+      "coverage_p95_pct": 99.16963226571768,
+      "coverage_p95_bootstrap_95ci": [
+        98.22002085629761,
+        99.8264103117802
+      ],
+      "unseen_vessels_mae_p50": 0.24257265258604924,
+      "unseen_vessels_coverage_p95": 99.66530308664932
+    }
+  },
+  "cohort_a1_full_trip": {
+    "test_arrivals": 290,
+    "hist_median_mae": 6.282375478927203,
+    "bootstrap_ci": [
+      4.65510968876377,
+      8.055112897361722
+    ]
+  }
+}
